@@ -1,0 +1,1711 @@
+openapi: 3.0.3
+info:
+  title: Ian Bank API
+  version: 0.1.0
+  description: |
+    금융앱 통합 기획·설계서(`docs/product-spec.md`) 기반 API 명세. 범위: 회원/인증(A), 계좌(B), 이체(C), 체크카드(D). AI Agent 제외.
+    각 operation의 `x-feature-ids`는 상세기능표의 기능 ID이다.
+
+    ## 공통 정책
+    - 인증: JWT Bearer. 서버가 토큰의 사용자 ID와 리소스 소유자 ID를 비교한다(B5.1). 타인 리소스는 존재 여부를 노출하지 않도록 `404`로 응답한다.
+    - 금액: 원 단위 정수(int64). 날짜시간: ISO 8601(UTC offset 포함).
+    - PIN(6자리)·통장 비밀번호(4자리)·인증번호는 요청 본문으로만 받고 로그·응답에 남기지 않는다.
+    - 계좌번호·카드번호: 목록은 마스킹(`accountNumMasked`, 카드는 끝 4자리), 계좌 상세에서만 전체 계좌번호를 반환한다.
+    - 민감 변경(한도 변경·해지·이체)은 본문의 `pin`으로 확인한다. 거래중지 해제·비밀번호 재설정은 이메일 인증번호(`verificationId`)로 확인한다.
+    - 상태별 허용 동작(B5.2): 거래중지·해지 계좌의 입금·출금·이체·관리 변경·해지는 `409 ACCOUNT_STATE_NOT_ALLOWED`(거래중지 해제만 예외).
+    - 중복 제출 방지: 이체는 `Idempotency-Key` 필수. 계좌 개설·카드 발급·해지는 서버에서 중복 요청을 차단한다.
+    - 미정 정책(실패 횟수 기준, 인증번호 만료·시도 횟수, 31일 말일 처리 등)은 확정 전까지 구현값을 임의로 확정하지 않는다. 문서 하단 `x-open-issues` 참고.
+servers:
+  - url: http://localhost:8080/api/v1
+    description: 로컬 개발
+tags:
+  - name: Auth
+    description: A1·A2 회원가입·로그인·로그아웃·이메일 본인확인
+  - name: Users
+    description: A2.4·A3 계정 관리·접속 기록·알림
+  - name: Accounts
+    description: B 계좌 개설·조회·관리·해지
+  - name: Transactions
+    description: B2 거래내역
+  - name: Transfers
+    description: C1 즉시이체
+  - name: AutoTransfers
+    description: C2.1 자동이체
+  - name: Recipients
+    description: C3 최근·자주 쓰는 계좌
+  - name: Cards
+    description: D1 체크카드
+security:
+  - bearerAuth: []
+
+paths:
+  # ───────────────────────── Auth ─────────────────────────
+  /terms:
+    get:
+      operationId: listTerms
+      tags: [Auth]
+      summary: 약관 목록 조회
+      description: 가입(SIGNUP)·계좌개설(ACCOUNT_OPEN) 약관을 조회한다.
+      x-feature-ids: [A1, B1.2]
+      security: []
+      parameters:
+        - name: category
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/TermCategory' }
+      responses:
+        '200':
+          description: 약관 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Term' }
+
+  /auth/email-verifications:
+    post:
+      operationId: sendEmailVerification
+      tags: [Auth]
+      summary: 이메일 인증번호 발송
+      description: |
+        목적별(`SIGNUP`/`RESET_PW`/`UNLOCK_ACCOUNT`) 인증번호를 이메일로 발송한다.
+        `UNLOCK_ACCOUNT`는 로그인 필요, 나머지는 비로그인 허용. 인증번호는 해시로 저장한다.
+      x-feature-ids: [A1, A3, B3.3.2]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, purpose]
+              properties:
+                email: { type: string, format: email }
+                purpose: { $ref: '#/components/schemas/VerificationPurpose' }
+      responses:
+        '202':
+          description: 발송 접수
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verificationId: { type: integer, format: int64 }
+                  expiresAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /auth/email-verifications/{verificationId}/verify:
+    post:
+      operationId: verifyEmailCode
+      tags: [Auth]
+      summary: 이메일 인증번호 확인
+      x-feature-ids: [A1, A3, B3.3.2]
+      security: []
+      parameters:
+        - name: verificationId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^\d{6}$', description: 인증번호 자릿수는 예시이며 확정 필요 }
+      responses:
+        '200':
+          description: 인증 완료(`verified_at` 기록). 이후 `verificationId`를 가입·재설정·해제 API에 전달한다.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verificationId: { type: integer, format: int64 }
+                  verifiedAt: { type: string, format: date-time }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: 인증번호 불일치·만료·시도 횟수 초과 (`VERIFICATION_FAILED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/signup:
+    post:
+      operationId: signup
+      tags: [Auth]
+      summary: 회원가입
+      description: |
+        필수 약관 동의, 이메일 본인확인 완료, ID·이메일·휴대폰 번호 중복 불가를 서버에서 검증한다.
+        비밀번호·PIN은 해시 저장, 회원 상태는 `ACTIVE`로 생성한다.
+      x-feature-ids: [A1]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignupRequest' }
+      responses:
+        '201':
+          description: 가입 완료
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: ID·이메일·휴대폰 번호 중복 (`DUPLICATE_LOGIN_ID` / `DUPLICATE_EMAIL` / `DUPLICATE_PHONE`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: 필수 약관 미동의(`TERMS_NOT_AGREED`) 또는 이메일 본인확인 미완료(`VERIFICATION_REQUIRED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: ID/PW 로그인
+      description: 실패 시 `login_fail_count` 누적, 기준 초과 시 회원 상태 `LOCKED`. 접속 기록(IP·기기·브라우저·성공 여부)을 저장하며 이상 접속 시 알림을 생성한다.
+      x-feature-ids: [A2.1, A2.4]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [loginId, password]
+              properties:
+                loginId: { type: string, maxLength: 30 }
+                password: { type: string, format: password }
+      responses:
+        '200': { $ref: '#/components/responses/LoginSuccess' }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+        '423': { $ref: '#/components/responses/UserLocked' }
+
+  /auth/login/pin:
+    post:
+      operationId: loginWithPin
+      tags: [Auth]
+      summary: PIN 로그인
+      description: 간편비밀번호(PIN 6자리) 로그인. 실패는 `pin_fail_count`로 ID/PW 실패와 별도 누적한다. 생체인증은 범위 제외.
+      x-feature-ids: [A2.1, A2.4]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [loginId, pin]
+              properties:
+                loginId: { type: string, maxLength: 30 }
+                pin: { $ref: '#/components/schemas/Pin' }
+      responses:
+        '200': { $ref: '#/components/responses/LoginSuccess' }
+        '401': { $ref: '#/components/responses/AuthFailed' }
+        '423': { $ref: '#/components/responses/UserLocked' }
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      summary: 로그아웃
+      description: 수동 로그아웃. 무활동 자동 로그아웃은 토큰 만료로 처리한다. 이후 해당 토큰은 서버에서 거부한다.
+      x-feature-ids: [A2.3]
+      responses:
+        '204': { description: 로그아웃 완료 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/password-reset:
+    post:
+      operationId: resetPassword
+      tags: [Auth]
+      summary: 비밀번호 재설정
+      description: '`RESET_PW` 목적으로 인증 완료된 `verificationId` 확인 후 비밀번호를 변경한다.'
+      x-feature-ids: [A3]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [loginId, verificationId, newPassword]
+              properties:
+                loginId: { type: string }
+                verificationId: { type: integer, format: int64 }
+                newPassword: { type: string, format: password }
+      responses:
+        '204': { description: 변경 완료 }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '422':
+          description: 본인확인 미완료·만료 (`VERIFICATION_REQUIRED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ───────────────────────── Users ─────────────────────────
+  /users/me:
+    get:
+      operationId: getMe
+      tags: [Users]
+      summary: 내 정보 조회
+      x-feature-ids: [A3]
+      responses:
+        '200':
+          description: 내 정보
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      operationId: updateMe
+      tags: [Users]
+      summary: 내 정보 변경
+      description: 이름·휴대폰 번호·생년월일 변경. 휴대폰 번호는 중복 불가. 이메일·ID 변경 정책은 미정.
+      x-feature-ids: [A3]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userName: { type: string, maxLength: 50 }
+                phoneNum: { type: string, maxLength: 20 }
+                birth: { type: string, format: date }
+      responses:
+        '200':
+          description: 변경 결과
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: 휴대폰 번호 중복 (`DUPLICATE_PHONE`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      operationId: withdrawMe
+      tags: [Users]
+      summary: 회원 탈퇴
+      description: 회원 상태를 `WITHDRAWN`으로 바꾸고 `withdrawn_at`을 기록한다. 탈퇴 제한 정책(보유 계좌·잔액 등)은 미정.
+      x-feature-ids: [A3]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { $ref: '#/components/schemas/Pin' }
+      responses:
+        '204': { description: 탈퇴 완료 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PinInvalid' }
+
+  /users/me/login-histories:
+    get:
+      operationId: listLoginHistories
+      tags: [Users]
+      summary: 접속 기록 조회
+      x-feature-ids: [A2.4]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: 접속 기록
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/LoginHistory' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [Users]
+      summary: 앱 내 알림 목록
+      description: 종류 — 카드결제, 이상접속, 자동이체 실패.
+      x-feature-ids: [A2.4, C2.1, D1.5]
+      parameters:
+        - name: unreadOnly
+          in: query
+          schema: { type: boolean, default: false }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: 알림 목록
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /notifications/{notificationId}/read:
+    post:
+      operationId: readNotification
+      tags: [Users]
+      summary: 알림 읽음 처리
+      x-feature-ids: [D1.5]
+      parameters:
+        - name: notificationId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 읽음 처리됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Accounts ─────────────────────────
+  /account-products:
+    get:
+      operationId: listAccountProducts
+      tags: [Accounts]
+      summary: 계좌 상품 안내 조회
+      description: 입출금통장 상품명·연 금리·상품 설명. 가입 조건 항목은 DB에 없으므로 제공하지 않는다.
+      x-feature-ids: [B1.1]
+      responses:
+        '200':
+          description: 상품 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccountProduct' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /accounts:
+    get:
+      operationId: listAccounts
+      tags: [Accounts]
+      summary: 내 계좌 목록·잔액
+      description: 본인 계좌만 반환. 즐겨찾기 계좌를 상단에 정렬한다. 계좌번호는 마스킹.
+      x-feature-ids: [B2.1, B3.1, B5.1]
+      responses:
+        '200':
+          description: 계좌 목록(없으면 빈 배열)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AccountSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: openAccount
+      tags: [Accounts]
+      summary: 계좌 개설
+      description: |
+        필수 약관 동의, 통장 비밀번호(4자리, 해시 저장)·확인값 일치를 검증하고 계좌번호(xxx-xxxx-xxxx, 중복 불가)를 발급한다.
+        기본 이체한도 1일 100만원·1달 500만원을 부여한다. 신분증·추가 본인확인(선택)은 범위 제외.
+      x-feature-ids: [B1.1, B1.2, B1.3, B1.4, B1.7, B1.8]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OpenAccountRequest' }
+      responses:
+        '201':
+          description: 개설 완료. 이후 홈 또는 체크카드 신청으로 연결한다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422':
+          description: 필수 약관 미동의 (`TERMS_NOT_AGREED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /accounts/{accountId}:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      operationId: getAccount
+      tags: [Accounts]
+      summary: 계좌 상세
+      description: 전체 계좌번호·상품·상태·잔액·한도를 반환한다(번호 복사 등 명시적 확인용).
+      x-feature-ids: [B2.2, B2.8, B5.1]
+      responses:
+        '200':
+          description: 계좌 상세
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateAccount
+      tags: [Accounts]
+      summary: 계좌 별칭·즐겨찾기 변경
+      description: 즐겨찾기 등록·해제는 홈 상단 고정에 반영된다. 해지 계좌는 변경 불가.
+      x-feature-ids: [B2.1, B3.1]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                nickname: { type: string, maxLength: 50 }
+                isFavorite: { type: boolean }
+      responses:
+        '200':
+          description: 변경 결과
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/AccountStateNotAllowed' }
+
+  /accounts/{accountId}/limits:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      operationId: getTransferLimits
+      tags: [Accounts]
+      summary: 이체한도 조회
+      description: 설정 한도와 오늘·이번 달 사용액(잔여 한도)을 반환한다.
+      x-feature-ids: [B2.8, B3.2]
+      responses:
+        '200':
+          description: 한도 현황
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransferLimits' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateTransferLimits
+      tags: [Accounts]
+      summary: 이체한도 변경
+      description: PIN 인증 후 1일·1달 한도를 변경한다. 한도 상한은 미정(확정 전 상한 검증 없음, 양수·일≤월만 검증).
+      x-feature-ids: [B3.2]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dailyLimit, monthLimit, pin]
+              properties:
+                dailyLimit: { type: integer, format: int64, minimum: 1 }
+                monthLimit: { type: integer, format: int64, minimum: 1 }
+                pin: { $ref: '#/components/schemas/Pin' }
+      responses:
+        '200':
+          description: 변경된 한도
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransferLimits' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PinInvalid' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/AccountStateNotAllowed' }
+
+  /accounts/{accountId}/unlock:
+    post:
+      operationId: unlockAccount
+      tags: [Accounts]
+      summary: 거래중지 해제
+      description: |
+        통장 비밀번호 오류 누적으로 `SUSPENDED`된 계좌를 이메일 인증번호 본인확인(`UNLOCK_ACCOUNT`) 후 `ACTIVE`로 복구한다.
+        거래중지 상태는 `GET /accounts/{accountId}`의 `status`로 조회한다(B3.3.1).
+      x-feature-ids: [B3.3.1, B3.3.2]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verificationId]
+              properties:
+                verificationId: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 해제 완료
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 거래중지 상태가 아님 (`ACCOUNT_NOT_SUSPENDED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: 본인확인 미완료·만료 (`VERIFICATION_REQUIRED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /accounts/{accountId}/close-eligibility:
+    get:
+      operationId: getCloseEligibility
+      tags: [Accounts]
+      summary: 해지 가능 여부 확인
+      description: 잔액·연결 서비스(체크카드·자동이체)·계좌 상태를 점검하고 해지 제한 사유를 반환한다.
+      x-feature-ids: [B4.1]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: 점검 결과
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloseEligibility' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /accounts/{accountId}/close:
+    post:
+      operationId: closeAccount
+      tags: [Accounts]
+      summary: 계좌 해지
+      description: |
+        PIN 인증 후 해지한다(되돌릴 수 없음). 실행 시 잔액·연결 서비스·상태를 다시 검증한다.
+        해지 시 `CLOSED`로 전환하고 `closed_at`을 기록하며, 거래내역은 보관하고 조회할 수 있다.
+      x-feature-ids: [B4.2, B4.3]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { $ref: '#/components/schemas/Pin' }
+      responses:
+        '200':
+          description: 해지 완료
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PinInvalid' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 해지 불가 (`ACCOUNT_CLOSE_BLOCKED`) — 잔액 존재·연결 서비스 존재·상태 불허. 사유는 `reasons`에 담는다.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ───────────────────────── Transactions ─────────────────────────
+  /accounts/{accountId}/transactions:
+    get:
+      operationId: listTransactions
+      tags: [Transactions]
+      summary: 거래내역 조회·검색
+      description: |
+        거래원장 조회. 기본 조건: 기간 3개월, 구분 전체, 최신순. 해지 계좌도 조회 가능.
+        필수 검색: 기간, 금액·금액범위, 상대방(입금자명·예금주), 적요·메모, 거래유형.
+        거래상태·거래 채널·수단 검색은 DB에 없어 제외(선택, 후속 검토).
+      x-feature-ids: [B2.3, B2.5, B2.6.1, B5.1]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - name: from
+          in: query
+          description: 조회 시작일(기본 오늘-3개월)
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: 조회 종료일(기본 오늘)
+          schema: { type: string, format: date }
+        - name: direction
+          in: query
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/TransactionDirection'
+          description: 입출금 구분(미지정 시 전체)
+        - name: types
+          in: query
+          description: 거래유형 필터(복수 가능)
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/TransactionType' }
+          style: form
+          explode: false
+        - name: minAmount
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: maxAmount
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: counterparty
+          in: query
+          description: 상대방 이름 부분 일치
+          schema: { type: string }
+        - name: memo
+          in: query
+          description: 적요·메모 부분 일치
+          schema: { type: string }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [latest, oldest], default: latest }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: 거래내역(결과 없음은 빈 배열)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Transaction' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /accounts/{accountId}/transactions/{transactionId}:
+    get:
+      operationId: getTransaction
+      tags: [Transactions]
+      summary: 거래 상세
+      x-feature-ids: [B2.4]
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - name: transactionId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 거래 상세
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transaction' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /accounts/{accountId}/statement-requests:
+    parameters:
+      - $ref: '#/components/parameters/AccountId'
+    get:
+      operationId: listStatementRequests
+      tags: [Transactions]
+      summary: 거래내역 다운로드 신청 목록
+      x-feature-ids: [B2.7]
+      parameters:
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: 신청 내역
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/StatementRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createStatementRequest
+      tags: [Transactions]
+      summary: 거래내역 다운로드 신청
+      description: 기간·이메일을 저장하고 이메일로 전달한다. `REQUESTED`는 접수일 뿐 발송 완료가 아니다(`SENT`/`FAILED`와 구분). 파일 형식은 미정.
+      x-feature-ids: [B2.7]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fromDate, toDate, email]
+              properties:
+                fromDate: { type: string, format: date }
+                toDate: { type: string, format: date }
+                email: { type: string, format: email }
+      responses:
+        '202':
+          description: 접수됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StatementRequest' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Transfers ─────────────────────────
+  /accounts/lookup:
+    get:
+      operationId: lookupAccount
+      tags: [Transfers]
+      summary: 받는 계좌 확인
+      description: 본 서비스에 개설된 계좌만 조회된다. 예금주명은 마스킹해 반환한다.
+      x-feature-ids: [C1.1]
+      parameters:
+        - name: accountNum
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/AccountNum' }
+      responses:
+        '200':
+          description: 수취 계좌 정보
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accountNum: { $ref: '#/components/schemas/AccountNum' }
+                  holderNameMasked: { type: string, example: 홍*동 }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: 본 서비스에 없는 계좌 (`RECIPIENT_NOT_FOUND`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /transfers:
+    get:
+      operationId: listTransfers
+      tags: [Transfers]
+      summary: 이체 내역 조회
+      description: 본인 출금 계좌의 이체 내역. 최근 이체 계좌 목록의 원천이다.
+      x-feature-ids: [C1.1, C3]
+      parameters:
+        - name: accountId
+          in: query
+          schema: { type: string, format: uuid }
+          description: 출금 계좌 필터
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TransferStatus' }
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: 이체 내역
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Transfer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: createTransfer
+      tags: [Transfers]
+      summary: 즉시이체
+      description: |
+        PIN 확인 후 이체 공통 함수를 실행한다. 출금·입금·거래원장·한도 누적은 하나의 트랜잭션으로 처리하고 동시성을 제어한다.
+        `Idempotency-Key`가 같은 요청은 한 번만 처리하고 기존 결과를 반환한다.
+        검증: 본인 출금 계좌, 양수 금액, 잔액, 계좌 상태, 1일·1달 한도, 수취 계좌는 본 서비스 계좌만.
+        응답이 유실되면 같은 키로 재전송하거나 `GET /transfers/{transferId}`로 결과를 확인한다.
+      x-feature-ids: [C1.1, C1.2, B5.2]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransferRequest' }
+      responses:
+        '200':
+          description: 같은 `Idempotency-Key`의 기존 결과 반환
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '201':
+          description: '이체 처리됨(`status`: SUCCESS 또는 PENDING)'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PinInvalid' }
+        '404':
+          description: 출금 계좌 없음 또는 본인 소유 아님(`NOT_FOUND`), 수취 계좌가 본 서비스에 없음(`RECIPIENT_NOT_FOUND`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 계좌 상태 불허(`ACCOUNT_STATE_NOT_ALLOWED`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: 잔액 부족(`INSUFFICIENT_BALANCE`), 일 한도 초과(`DAILY_LIMIT_EXCEEDED`), 월 한도 초과(`MONTHLY_LIMIT_EXCEEDED`), 동일 계좌 이체(`SAME_ACCOUNT`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /transfers/{transferId}:
+    get:
+      operationId: getTransfer
+      tags: [Transfers]
+      summary: 이체 결과 조회
+      description: 응답이 불명확할 때 처리 결과(처리중·성공·실패와 실패 사유)를 확인한다.
+      x-feature-ids: [C1.1]
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 이체 결과
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Transfer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Recipients ─────────────────────────
+  /transfers/recent-recipients:
+    get:
+      operationId: listRecentRecipients
+      tags: [Recipients]
+      summary: 최근 이체 계좌 목록
+      description: 별도 저장 없이 이체 내역에서 조회한다. 자주 쓰는 계좌에 등록된 경우 `favoriteId`·별칭을 함께 반환한다.
+      x-feature-ids: [C3]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+      responses:
+        '200':
+          description: 최근 수취 계좌
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/RecentRecipient' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /favorite-recipients:
+    get:
+      operationId: listFavoriteRecipients
+      tags: [Recipients]
+      summary: 자주 쓰는 받는 계좌 목록
+      x-feature-ids: [C3]
+      responses:
+        '200':
+          description: 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/FavoriteRecipient' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: createFavoriteRecipient
+      tags: [Recipients]
+      summary: 자주 쓰는 받는 계좌 등록
+      x-feature-ids: [C3]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accountNum]
+              properties:
+                accountNum: { $ref: '#/components/schemas/AccountNum' }
+                alias: { type: string, maxLength: 50 }
+      responses:
+        '201':
+          description: 등록됨(예금주는 서버가 조회해 저장)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FavoriteRecipient' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: 본 서비스에 없는 계좌 (`RECIPIENT_NOT_FOUND`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409':
+          description: 이미 등록됨 (`DUPLICATE_FAVORITE`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /favorite-recipients/{favoriteId}:
+    parameters:
+      - name: favoriteId
+        in: path
+        required: true
+        schema: { type: integer, format: int64 }
+    patch:
+      operationId: updateFavoriteRecipient
+      tags: [Recipients]
+      summary: 별칭 변경
+      x-feature-ids: [C3]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [alias]
+              properties:
+                alias: { type: string, maxLength: 50 }
+      responses:
+        '200':
+          description: 변경됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FavoriteRecipient' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: deleteFavoriteRecipient
+      tags: [Recipients]
+      summary: 자주 쓰는 받는 계좌 해제
+      x-feature-ids: [C3]
+      responses:
+        '204': { description: 해제됨 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── AutoTransfers ─────────────────────────
+  /auto-transfers:
+    get:
+      operationId: listAutoTransfers
+      tags: [AutoTransfers]
+      summary: 자동이체 목록
+      x-feature-ids: [C2.1]
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AutoTransferStatus' }
+      responses:
+        '200':
+          description: 목록(없으면 빈 배열)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/AutoTransfer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: createAutoTransfer
+      tags: [AutoTransfers]
+      summary: 자동이체 등록
+      description: |
+        조건만 등록한다. 실제 이체는 스케줄러가 예정 시각에 이체 공통 함수로 실행하며 실행 시 한도·잔액·계좌 상태를 다시 검증한다.
+        같은 회차는 중복 실행하지 않는다. 실패하면 `AUTO_TRANSFER_FAIL` 알림을 생성한다.
+        **등록 완료는 송금 완료가 아니다.**
+        실행일: 매주(`WEEKLY`) 0(월)~6(일), 매월(`MONTHLY`) 1~31. 말일 처리는 미정.
+      x-feature-ids: [C2.1]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AutoTransferRequest' }
+      responses:
+        '201':
+          description: 등록됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutoTransfer' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: 출금 계좌 없음·타인 소유(`NOT_FOUND`), 수취 계좌 없음(`RECIPIENT_NOT_FOUND`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '409': { $ref: '#/components/responses/AccountStateNotAllowed' }
+
+  /auto-transfers/{autoTransferId}:
+    parameters:
+      - name: autoTransferId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getAutoTransfer
+      tags: [AutoTransfers]
+      summary: 자동이체 상세
+      x-feature-ids: [C2.1]
+      responses:
+        '200':
+          description: 상세
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutoTransfer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      operationId: cancelAutoTransfer
+      tags: [AutoTransfers]
+      summary: 자동이체 해지
+      description: 상태를 `CANCELED`로 바꾼다(이력 보존). 종료일 경과는 스케줄러가 `ENDED`로 처리한다.
+      x-feature-ids: [C2.1]
+      responses:
+        '200':
+          description: 해지됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AutoTransfer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ───────────────────────── Cards ─────────────────────────
+  /cards:
+    get:
+      operationId: listCards
+      tags: [Cards]
+      summary: 내 체크카드 목록
+      description: 본인 카드만 반환. 카드번호는 끝 4자리만 표시.
+      x-feature-ids: [D1.2]
+      responses:
+        '200':
+          description: 카드 목록(없으면 빈 배열)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Card' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      operationId: issueCard
+      tags: [Cards]
+      summary: 체크카드 발급 신청
+      description: |
+        본인 소유·`ACTIVE` 계좌에 연결해 발급한다. 카드번호는 암호화 저장, 유효기간·브랜드(VISA/MASTER/LOCAL) 저장.
+        기본값: 일일 사용한도 100만원, 해외결제 off.
+      x-feature-ids: [D1.1]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accountId]
+              properties:
+                accountId: { type: string, format: uuid }
+                cardNetwork: { $ref: '#/components/schemas/CardNetwork' }
+                dailyLimit: { type: integer, format: int64, minimum: 1, default: 1000000 }
+                overseasEnabled: { type: boolean, default: false }
+      responses:
+        '201':
+          description: 발급됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Card' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/AccountStateNotAllowed' }
+
+  /cards/{cardId}:
+    parameters:
+      - $ref: '#/components/parameters/CardId'
+    get:
+      operationId: getCard
+      tags: [Cards]
+      summary: 카드 상세
+      x-feature-ids: [D1.3]
+      responses:
+        '200':
+          description: 카드 상세
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Card' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      operationId: updateCardSettings
+      tags: [Cards]
+      summary: 카드 한도·해외결제 변경
+      description: '`ACTIVE` 카드만 변경 가능. 한도 변경의 PIN 인증 필요 여부는 미정(기능정의서에 명시 없음).'
+      x-feature-ids: [D1.3]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                dailyLimit: { type: integer, format: int64, minimum: 1 }
+                overseasEnabled: { type: boolean }
+      responses:
+        '200':
+          description: 변경됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Card' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/CardStateNotAllowed' }
+
+  /cards/{cardId}/payments:
+    get:
+      operationId: listCardPayments
+      tags: [Cards]
+      summary: 카드 사용내역 조회
+      description: 가맹점명·금액·요청/완료일시. 본인 카드만 조회.
+      x-feature-ids: [D1.3, D1.5]
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+        - { $ref: '#/components/parameters/Page' }
+        - { $ref: '#/components/parameters/Size' }
+      responses:
+        '200':
+          description: 사용내역
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/CardPayment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /cards/{cardId}/suspend:
+    post:
+      operationId: suspendCard
+      tags: [Cards]
+      summary: 카드 정지
+      description: '`ACTIVE` → `SUSPENDED`. 정지 해제 정책은 미정.'
+      x-feature-ids: [D1.3]
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+      responses:
+        '200':
+          description: 정지됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Card' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/CardStateNotAllowed' }
+
+  /cards/{cardId}/report-lost:
+    post:
+      operationId: reportCardLost
+      tags: [Cards]
+      summary: 카드 분실 신고
+      description: '`ACTIVE`/`SUSPENDED` → `LOST`. 이후 결제는 차단되며 재발급을 안내한다.'
+      x-feature-ids: [D1.3]
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: 분실 처리됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Card' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/CardStateNotAllowed' }
+
+  /cards/{cardId}/reissue:
+    post:
+      operationId: reissueCard
+      tags: [Cards]
+      summary: 카드 재발급
+      description: |
+        새 카드를 발급하고 `reissuedFromId`에 이전 카드를 연결한다. 이전 카드는 `REISSUED`로 전환한다.
+        한도·해외결제 설정은 이전 카드 값을 승계한다(승계 여부 미정).
+      x-feature-ids: [D1.4]
+      parameters:
+        - $ref: '#/components/parameters/CardId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: 새 카드
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Card' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/CardStateNotAllowed' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CardId:
+      name: cardId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: 요청별 고유값(클라이언트 생성, ≤100자). 같은 키 재요청은 중복 처리하지 않고 기존 결과를 반환한다.
+      schema: { type: string, maxLength: 100 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  responses:
+    ValidationError:
+      description: 입력값 검증 실패 (`VALIDATION_ERROR`) — `fieldErrors`에 필드별 원인
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: 미인증·토큰 만료 (`UNAUTHORIZED`) — 재로그인 필요
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: 리소스 없음 또는 본인 소유 아님 (`NOT_FOUND`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PinInvalid:
+      description: PIN 불일치 (`PIN_INVALID`) — 변경·처리 없음, `pin_fail_count` 누적
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    AuthFailed:
+      description: 인증 정보 불일치 (`AUTH_FAILED`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UserLocked:
+      description: 회원 잠금 상태 (`USER_LOCKED`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: 요청 과다 (`TOO_MANY_REQUESTS`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    AccountStateNotAllowed:
+      description: 계좌 상태가 해당 동작을 허용하지 않음 (`ACCOUNT_STATE_NOT_ALLOWED`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    CardStateNotAllowed:
+      description: 카드 상태가 해당 동작을 허용하지 않음 (`CARD_STATE_NOT_ALLOWED`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    LoginSuccess:
+      description: 로그인 성공
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              accessToken: { type: string }
+              tokenType: { type: string, example: Bearer }
+              expiresIn: { type: integer, description: 만료까지 초 }
+              user: { $ref: '#/components/schemas/User' }
+
+  schemas:
+    # ── 공통 ──
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: VALIDATION_ERROR }
+        message: { type: string }
+        fieldErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              reason: { type: string }
+        reasons:
+          type: array
+          description: 해지 제한 사유 등
+          items: { type: string }
+    PageMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+    Pin:
+      type: string
+      pattern: '^\d{6}$'
+      description: 간편비밀번호 6자리(숫자). 로그·응답에 남기지 않는다.
+    AccountNum:
+      type: string
+      pattern: '^\d{3}-\d{4}-\d{4}$'
+      example: 110-1234-5678
+
+    # ── 코드값 (term-mapping.md 3절) ──
+    TermCategory: { type: string, enum: [SIGNUP, ACCOUNT_OPEN] }
+    VerificationPurpose: { type: string, enum: [SIGNUP, UNLOCK_ACCOUNT, RESET_PW] }
+    UserStatus: { type: string, enum: [ACTIVE, LOCKED, WITHDRAWN] }
+    AccountStatus: { type: string, enum: [ACTIVE, SUSPENDED, CLOSED] }
+    TransactionType: { type: string, enum: [DEPOSIT, WITHDRAW, TRANSFER, AUTO_TRANSFER, CARD] }
+    TransactionDirection: { type: string, enum: [IN, OUT] }
+    StatementStatus: { type: string, enum: [REQUESTED, SENT, FAILED] }
+    TransferStatus: { type: string, enum: [PENDING, SUCCESS, FAILED] }
+    AutoTransferCycle: { type: string, enum: [WEEKLY, MONTHLY] }
+    AutoTransferStatus: { type: string, enum: [ACTIVE, ENDED, CANCELED] }
+    CardNetwork: { type: string, enum: [VISA, MASTER, LOCAL] }
+    CardStatus: { type: string, enum: [ACTIVE, SUSPENDED, LOST, REISSUED, CANCELED] }
+    NotificationType: { type: string, enum: [CARD_PAYMENT, SUSPICIOUS_LOGIN, AUTO_TRANSFER_FAIL] }
+
+    # ── 회원/인증 ──
+    Term:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        content: { type: string }
+        version: { type: string }
+        required: { type: boolean }
+        category: { $ref: '#/components/schemas/TermCategory' }
+    TermAgreement:
+      type: object
+      required: [termId, agreed]
+      properties:
+        termId: { type: integer, format: int64 }
+        agreed: { type: boolean }
+    SignupRequest:
+      type: object
+      required: [userName, email, phoneNum, loginId, password, passwordConfirm, pin, pinConfirm, verificationId, agreements]
+      properties:
+        userName: { type: string, maxLength: 50 }
+        email: { type: string, format: email, maxLength: 255 }
+        phoneNum: { type: string, maxLength: 20 }
+        birth: { type: string, format: date, description: 선택 }
+        loginId: { type: string, maxLength: 30 }
+        password: { type: string, format: password }
+        passwordConfirm: { type: string, format: password }
+        pin: { $ref: '#/components/schemas/Pin' }
+        pinConfirm: { $ref: '#/components/schemas/Pin' }
+        verificationId:
+          type: integer
+          format: int64
+          description: 인증 완료된 `SIGNUP` 이메일 인증 ID
+        agreements:
+          type: array
+          items: { $ref: '#/components/schemas/TermAgreement' }
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        loginId: { type: string }
+        email: { type: string, format: email }
+        userName: { type: string }
+        birth: { type: string, format: date, nullable: true }
+        phoneNum: { type: string }
+        status: { $ref: '#/components/schemas/UserStatus' }
+        createdAt: { type: string, format: date-time }
+    LoginHistory:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        ip: { type: string }
+        userAgent: { type: string }
+        success: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    Notification:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        type: { $ref: '#/components/schemas/NotificationType' }
+        message: { type: string }
+        readAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    # ── 계좌 ──
+    AccountProduct:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        productName: { type: string }
+        interestRate: { type: number, description: '연 금리(%)', example: 2.5 }
+        description: { type: string }
+    OpenAccountRequest:
+      type: object
+      required: [productId, accountPassword, accountPasswordConfirm, openingInfo, agreements]
+      properties:
+        productId: { type: integer, format: int64 }
+        accountPassword: { type: string, pattern: '^\d{4}$', description: 통장 비밀번호 4자리 }
+        accountPasswordConfirm: { type: string, pattern: '^\d{4}$' }
+        nickname: { type: string, maxLength: 50 }
+        openingInfo:
+          type: object
+          description: 개설 목적·거래정보(JSONB). 세부 항목은 확정 필요.
+          required: [purpose]
+          properties:
+            purpose: { type: string, description: 개설 목적 }
+          additionalProperties: true
+        agreements:
+          type: array
+          description: '`ACCOUNT_OPEN` 약관 동의 내역'
+          items: { $ref: '#/components/schemas/TermAgreement' }
+    AccountSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        accountNumMasked: { type: string, example: 110-****-5678 }
+        productName: { type: string }
+        nickname: { type: string, nullable: true }
+        balance: { type: integer, format: int64 }
+        isFavorite: { type: boolean }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+    Account:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        accountNum: { $ref: '#/components/schemas/AccountNum' }
+        product: { $ref: '#/components/schemas/AccountProduct' }
+        nickname: { type: string, nullable: true }
+        balance: { type: integer, format: int64 }
+        isFavorite: { type: boolean }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        dailyLimit: { type: integer, format: int64, example: 1000000 }
+        monthLimit: { type: integer, format: int64, example: 5000000 }
+        createdAt: { type: string, format: date-time }
+        closedAt: { type: string, format: date-time, nullable: true }
+    TransferLimits:
+      type: object
+      properties:
+        dailyLimit: { type: integer, format: int64 }
+        monthLimit: { type: integer, format: int64 }
+        dailyUsed: { type: integer, format: int64 }
+        monthUsed: { type: integer, format: int64 }
+        dailyRemaining: { type: integer, format: int64 }
+        monthRemaining: { type: integer, format: int64 }
+    CloseEligibility:
+      type: object
+      properties:
+        eligible: { type: boolean }
+        balance: { type: integer, format: int64 }
+        hasActiveCard: { type: boolean }
+        hasActiveAutoTransfer: { type: boolean }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        reasons:
+          type: array
+          description: 해지 제한 사유 안내 문구
+          items: { type: string }
+    Transaction:
+      type: object
+      properties:
+        id: { type: integer, format: int64, description: 거래번호 }
+        accountId: { type: string, format: uuid }
+        transactionType: { $ref: '#/components/schemas/TransactionType' }
+        transactionDirection: { $ref: '#/components/schemas/TransactionDirection' }
+        amount: { type: integer, format: int64 }
+        newBalance: { type: integer, format: int64, description: 거래 후 잔액 }
+        counterpartyName: { type: string, nullable: true, description: 카드는 가맹점명 }
+        counterpartyAccount: { type: string, nullable: true }
+        memo: { type: string, nullable: true }
+        transactionAt: { type: string, format: date-time }
+    StatementRequest:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        accountId: { type: string, format: uuid }
+        fromDate: { type: string, format: date }
+        toDate: { type: string, format: date }
+        email: { type: string, format: email }
+        status: { $ref: '#/components/schemas/StatementStatus' }
+        createdAt: { type: string, format: date-time }
+
+    # ── 이체 ──
+    TransferRequest:
+      type: object
+      required: [fromAccountId, toAccountNum, amount, pin]
+      properties:
+        fromAccountId: { type: string, format: uuid }
+        toAccountNum: { $ref: '#/components/schemas/AccountNum' }
+        amount: { type: integer, format: int64, minimum: 1 }
+        memo: { type: string, maxLength: 100 }
+        pin: { $ref: '#/components/schemas/Pin' }
+    Transfer:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fromAccountId: { type: string, format: uuid }
+        toAccountNumMasked: { type: string }
+        toHolderNameMasked: { type: string }
+        amount: { type: integer, format: int64 }
+        memo: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/TransferStatus' }
+        failReason: { type: string, nullable: true }
+        autoTransferId: { type: string, format: uuid, nullable: true }
+        requestAt: { type: string, format: date-time }
+        completeAt: { type: string, format: date-time, nullable: true }
+    RecentRecipient:
+      type: object
+      properties:
+        accountNum: { $ref: '#/components/schemas/AccountNum' }
+        holderNameMasked: { type: string }
+        lastTransferAt: { type: string, format: date-time }
+        favoriteId: { type: integer, format: int64, nullable: true }
+        alias: { type: string, nullable: true }
+    FavoriteRecipient:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        accountNum: { $ref: '#/components/schemas/AccountNum' }
+        holderName: { type: string }
+        alias: { type: string, nullable: true }
+    AutoTransferRequest:
+      type: object
+      required: [fromAccountId, toAccountNum, amount, cycle, runDay, startDate]
+      properties:
+        fromAccountId: { type: string, format: uuid }
+        toAccountNum: { $ref: '#/components/schemas/AccountNum' }
+        amount: { type: integer, format: int64, minimum: 1 }
+        memo: { type: string, maxLength: 100 }
+        cycle: { $ref: '#/components/schemas/AutoTransferCycle' }
+        runDay:
+          type: integer
+          minimum: 0
+          maximum: 31
+          description: 'WEEKLY: 0(월)~6(일), MONTHLY: 1~31'
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date, nullable: true, description: '선택, startDate 이후' }
+    AutoTransfer:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fromAccountId: { type: string, format: uuid }
+        toAccountNumMasked: { type: string }
+        amount: { type: integer, format: int64 }
+        memo: { type: string, nullable: true }
+        cycle: { $ref: '#/components/schemas/AutoTransferCycle' }
+        runDay: { type: integer }
+        startDate: { type: string, format: date }
+        endDate: { type: string, format: date, nullable: true }
+        nextRunDate: { type: string, format: date, nullable: true }
+        status: { $ref: '#/components/schemas/AutoTransferStatus' }
+        createdAt: { type: string, format: date-time }
+
+    # ── 카드 ──
+    Card:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        accountId: { type: string, format: uuid }
+        cardNumLast4: { type: string, example: '1234', description: 카드번호는 끝 4자리만 노출 }
+        expiryDate: { type: string, example: 11/30, description: MM/YY }
+        cardNetwork: { $ref: '#/components/schemas/CardNetwork' }
+        dailyLimit: { type: integer, format: int64 }
+        overseasEnabled: { type: boolean }
+        reissuedFromId: { type: string, format: uuid, nullable: true }
+        status: { $ref: '#/components/schemas/CardStatus' }
+        createdAt: { type: string, format: date-time }
+    CardPayment:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        place: { type: string, description: 가맹점명 }
+        amount: { type: integer, format: int64 }
+        requestAt: { type: string, format: date-time }
+        completeAt: { type: string, format: date-time, nullable: true }
+
+x-open-issues:
+  - 로그인 실패·PIN 실패·통장 비밀번호 오류의 누적 기준 횟수와 잠금 해제 정책(회원 `LOCKED` 해제 방법 포함) 미정
+  - 이메일 인증번호 만료 시간·시도 횟수·재발송 제한 미정
+  - 통장 비밀번호(4자리)를 입력·검증하는 API가 기능정의서에 없음(이체 시 PIN만 정의). 오류 누적으로 거래중지되는 지점 확정 필요
+  - JWT 만료 시간·리프레시 토큰 여부, 로그아웃 후 토큰 무효화 방식 미정
+  - 자동이체 31일 지정 시 말일 처리, 자동이체 수정(PATCH) 필요 여부 미정
+  - 회원 탈퇴 제한 정책(보유 계좌·잔액 존재 시) 미정
+  - 카드 정지 해제 API, 카드 한도 변경의 PIN 인증 필요 여부, 재발급 시 설정 승계 미정
+  - 이상 접속 판단 기준 미정
+  - 계좌 상태별 허용 동작 표는 제안안이며 규정 검토 필요
+  - 거래내역 다운로드 파일 형식·보관 기간 미정
+  - 선택 기능(소셜 로그인, 신분증·추가 본인확인, 거래상태·채널 검색, 예약이체, 다건이체, 카드 부가기능, 신용카드)은 MVP 제외로 API 미포함

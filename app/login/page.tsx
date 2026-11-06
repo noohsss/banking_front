@@ -2,19 +2,23 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useStore } from "@/lib/store";
+import { useAuth } from "@/lib/services/useAuth";
+import { IS_LIVE } from "@/lib/api/mode";
+import { errorMessage } from "@/lib/api/errors";
 import { PinPad } from "@/components/PinPad";
 import { TextField } from "../signup/fields";
+import { ResetPassword } from "../signup/ResetPassword";
 import s from "./login.module.css";
 
 type Mode = "pw" | "pin";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, loginWithPin, user } = useStore();
+  const { login, loginWithPin, user } = useAuth();
   const [mode, setMode] = useState<Mode>("pw");
   const [id, setId] = useState("");
   const [pw, setPw] = useState("");
+  const [pinId, setPinId] = useState("");
   const [err, setErr] = useState("");
   const [pinErr, setPinErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -24,30 +28,28 @@ export default function LoginPage() {
   useEffect(() => { const t = timers.current; return () => t.forEach(clearTimeout); }, []);
   useEffect(() => { if (user) router.replace("/home"); }, [user, router]);
 
+  // mock은 기존처럼 짧은 지연으로 처리 중 상태를 보여 준다. live는 실제 응답 시간이 지연이다.
+  const wait = (ms: number) => (IS_LIVE ? Promise.resolve() : new Promise<void>((res) => { timers.current.push(setTimeout(res, ms)); }));
   const later = (fn: () => void, ms: number) => { timers.current.push(setTimeout(fn, ms)); };
   const start = () => { if (busyRef.current) return false; busyRef.current = true; setBusy(true); return true; };
   const end = () => { busyRef.current = false; setBusy(false); };
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busyRef.current) return;
     if (!id.trim() || !pw) { setErr("아이디와 비밀번호를 모두 입력해 주세요."); return; }
     setErr(""); start();
-    later(() => {
-      const r = login(id.trim(), pw);
-      if (r.ok) router.replace("/home");
-      else { setErr(r.message ?? "로그인하지 못했어요. 잠시 후 다시 시도해 주세요."); end(); }
-    }, 350);
+    await wait(350);
+    try { await login(id.trim(), pw); router.replace("/home"); }
+    catch (x) { setErr(errorMessage(x) || "로그인하지 못했어요. 잠시 후 다시 시도해 주세요."); end(); }
   };
 
-  const onPin = (pin: string) => {
+  const onPin = async (pin: string) => {
+    if (IS_LIVE && !pinId.trim()) { setPinErr("아이디를 먼저 입력해 주세요."); later(() => setPinErr(""), 900); return; }
     if (!start()) return;
-    later(() => {
-      const r = loginWithPin(pin);
-      if (r.ok) { router.replace("/home"); return; }
-      setPinErr(r.message ?? "PIN이 맞지 않아요.");
-      later(() => { setPinErr(""); end(); }, 900);
-    }, 250);
+    await wait(250);
+    try { await loginWithPin(pinId.trim(), pin); router.replace("/home"); }
+    catch (x) { setPinErr(errorMessage(x)); later(() => { setPinErr(""); end(); }, 900); }
   };
 
   return (
@@ -72,6 +74,7 @@ export default function LoginPage() {
           </form>
         ) : (
           <div className={s.pin}>
+            {IS_LIVE && <TextField id="login-pin-id" label="아이디" value={pinId} onChange={(e) => setPinId(e.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="아이디를 입력해 주세요" />}
             <p className="ian-t-body" style={{ margin: 0, textAlign: "center" }}>가입할 때 만든 PIN 6자리를 눌러 주세요.</p>
             <PinPad key={pinErr ? "e" : "n"} onComplete={onPin} error={!!pinErr} label={pinErr || "PIN 6자리를 입력해 주세요"} />
           </div>
@@ -80,9 +83,10 @@ export default function LoginPage() {
         <div className={s.links}>
           <Link href="/signup">회원가입</Link>
           <span className={s.sep} aria-hidden="true" />
-          <button type="button" aria-expanded={resetOpen} aria-controls="reset-note" onClick={() => setResetOpen((v) => !v)}>비밀번호 재설정</button>
+          <button type="button" aria-expanded={resetOpen} aria-controls={IS_LIVE ? undefined : "reset-note"} onClick={() => setResetOpen((v) => !v)}>비밀번호 재설정</button>
         </div>
-        {resetOpen && (
+        {IS_LIVE && resetOpen && <ResetPassword open onClose={() => setResetOpen(false)} />}
+        {!IS_LIVE && resetOpen && (
           <div id="reset-note" className="ian-notice"><div><b className="ian-notice__title">비밀번호 재설정은 준비 중이에요</b>이메일 인증으로 새 비밀번호를 만드는 기능은 아직 열리지 않았어요. 지금은 데모 계정(minsu)으로 체험해 보세요.</div></div>
         )}
       </div>

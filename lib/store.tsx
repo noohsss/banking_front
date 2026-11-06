@@ -1,9 +1,13 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import type { Account, AppState, AutoTransfer, Card, Recipient, Transfer, Tx, User } from "./types";
+import type { Account, AppState, AutoTransfer, Card, Member, Recipient, Transfer, Tx, User } from "./types";
 import { seedState, SEED_LOGIN, SEED_PIN, SERVICE_DIRECTORY } from "./seed";
 import { uid } from "./format";
+import { IS_LIVE } from "./api/mode";
+import { setUnauthorizedHandler, tokenStore } from "./api/token";
+import * as authApi from "./api/auth";
+import * as usersApi from "./api/users";
 
 type Action =
   | { type: "hydrate"; state: AppState }
@@ -36,7 +40,8 @@ interface Store extends AppState {
   checkPin: (pin: string) => boolean;          // 데모 PIN 123456
   signup: (u: Omit<User, "id"> & { pin: string; password: string }) => { ok: boolean; message?: string };
   logout: () => void;
-  withdraw: () => void;                        // 회원 탈퇴: 가입 회원 정보를 지우고 로그아웃
+  withdraw: (pin?: string) => void | Promise<void>; // 회원 탈퇴. live는 PIN을 본문에 실어 보내고 실패하면 ApiError를 던진다
+  setUser: (u: User | null) => void;           // live 로그인 결과 반영용
   updateUser: (patch: Partial<User>) => void;
   // 계좌
   getAccount: (id: string) => Account | undefined;
@@ -63,21 +68,34 @@ interface Store extends AppState {
 const Ctx = createContext<Store | null>(null);
 export const useStore = () => { const c = useContext(Ctx); if (!c) throw new Error("StoreProvider 없음"); return c; };
 
+/** 비밀번호·PIN을 뺀 공개용 회원 정보 */
+const publicUser = (m: Member): User => ({ id: m.id, loginId: m.loginId, name: m.name, email: m.email, phone: m.phone, birth: m.birth });
+
 const NOW = () => new Date().toISOString();
 const sameDay = (a: string, b: string) => a.slice(0, 10) === b.slice(0, 10);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, seedState);
   const [ready, setReady] = useState(false);
-  const stateRef = useRef(state); stateRef.current = state;
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; });
   const router = useRouter();
   const pathname = usePathname();
 
+  /* eslint-disable react-hooks/set-state-in-effect -- 마운트 시 한 번 세션/저장 상태를 복원하는 초기화 */
   useEffect(() => {
+    if (IS_LIVE) {
+      // live: 모의 상태 복원 없이 토큰으로 user만 복원. 401이면 핸들러가 로그아웃 처리
+      setUnauthorizedHandler(() => { tokenStore.clear(); dispatch({ type: "logout" }); router.replace("/login"); });
+      if (!tokenStore.get()) { setReady(true); return; }
+      usersApi.getMe().then((user) => dispatch({ type: "login", user }), () => { tokenStore.clear(); dispatch({ type: "logout" }); }).finally(() => setReady(true));
+      return () => setUnauthorizedHandler(null);
+    }
     try { const raw = localStorage.getItem(KEY); if (raw) dispatch({ type: "hydrate", state: JSON.parse(raw) }); } catch {}
     setReady(true);
-  }, []);
-  useEffect(() => { if (ready) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} } }, [state, ready]);
+  }, [router]);
+  /* eslint-enable react-hooks/set-state-in-effect */
+  useEffect(() => { if (ready && !IS_LIVE) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} } }, [state, ready]);
   useEffect(() => {
     if (ready && !state.user && !PUBLIC.includes(pathname)) router.replace("/login");
   }, [ready, state.user, pathname, router]);
@@ -92,19 +110,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const usedMonth = (id: string) => usedSince(id, (at) => at.slice(0, 7) === NOW().slice(0, 7));
 
     return {
-      ...s(), ready,
+      ...state, ready,
       login: (id, pw) => {
         if (id === SEED_LOGIN.id && pw === SEED_LOGIN.pw) {
           dispatch({ type: "login", user: { id: "u1", loginId: id, name: "김민수", email: "minsu@ian.bank", phone: "010-1234-5678", birth: "1998-05-14" } });
           return { ok: true };
         }
         const m = s().members.find((u) => u.loginId === id && u.password === pw);
-        if (m) { const { password: _p, pin: _n, ...user } = m; dispatch({ type: "login", user }); return { ok: true }; }
+        if (m) { dispatch({ type: "login", user: publicUser(m) }); return { ok: true }; }
         return { ok: false, message: "아이디 또는 비밀번호가 맞지 않아요." };
       },
       loginWithPin: (pin) => {
         const m = s().members.find((u) => u.pin === pin);
-        if (m) { const { password: _p, pin: _n, ...user } = m; dispatch({ type: "login", user }); return { ok: true }; }
+        if (m) { dispatch({ type: "login", user: publicUser(m) }); return { ok: true }; }
         if (pin !== SEED_PIN) return { ok: false, message: "PIN이 맞지 않아요." };
         dispatch({ type: "login", user: { id: "u1", loginId: SEED_LOGIN.id, name: "김민수", email: "minsu@ian.bank", phone: "010-1234-5678", birth: "1998-05-14" } });
         return { ok: true };
@@ -115,8 +133,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         patch((st) => ({ ...st, members: [...st.members, { id: uid("u"), ...u }] }));
         return { ok: true };
       },
-      logout: () => { dispatch({ type: "logout" }); router.replace("/login"); },
-      withdraw: () => {
+      logout: () => {
+        if (IS_LIVE) authApi.logout().catch(() => {}).finally(() => tokenStore.clear()); // 서버 거부(401)여도 로컬 세션은 끊는다
+        dispatch({ type: "logout" }); router.replace("/login");
+      },
+      setUser: (user) => dispatch(user ? { type: "login", user } : { type: "logout" }),
+      withdraw: async (pin) => {
+        if (IS_LIVE) { await usersApi.withdrawMe(pin ?? ""); tokenStore.clear(); dispatch({ type: "logout" }); router.replace("/login"); return; }
         const id = s().user?.id;
         patch((st) => ({ ...st, members: st.members.filter((m) => m.id !== id), user: null }));
         router.replace("/login");
@@ -196,7 +219,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return nc;
       },
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, ready, patch, router]);
 
   if (!ready) return null;

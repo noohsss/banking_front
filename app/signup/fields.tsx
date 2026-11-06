@@ -23,3 +23,5 @@ export const fmtPhone = (v: string) => {
   if (d.length < 8) return `${d.slice(0, 3)}-${d.slice(3)}`;
   return d.length === 11 ? `${d.slice(0, 3)}-${d.slice(3, 7)}-${d.slice(7)}` : `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
 };
+export const checkId = (v: string) => (/^[a-z0-9]{4,16}$/.test(v) ? "" : "아이디는 영문 소문자와 숫자 4~16자로 만들어 주세요.");
+export const checkPw = (v: string) => (v.length >= 8 && /[A-Za-z]/.test(v) && /\d/.test(v) && /[^A-Za-z0-9]/.test(v) ? "" : "비밀번호는 8자 이상, 영문·숫자·특수문자를 모두 넣어 주세요.");

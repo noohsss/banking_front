@@ -1,11 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useStore } from "@/lib/store";
+import { useAuth } from "@/lib/services/useAuth";
+import { IS_LIVE } from "@/lib/api/mode";
+import { ApiError, errorMessage } from "@/lib/api/errors";
 import { AppBar } from "@/components/AppBar";
 import { PinPad } from "@/components/PinPad";
 import { Sheet } from "@/components/Sheet";
 import { TextField, checkEmail, checkName, checkPhone, fmtPhone } from "../../signup/fields";
+import { ResetPassword } from "../../signup/ResetPassword";
 
 type Panel = null | "edit" | "reset" | "withdraw";
 const CONFIRM_TEXT = "탈퇴합니다";
@@ -18,7 +21,7 @@ const LINKS = [
 ];
 
 export default function MenuPage() {
-  const { user, updateUser, checkPin, logout, withdraw } = useStore();
+  const { user, updateMe, checkPin, logout, withdraw } = useAuth();
   const [panel, setPanel] = useState<Panel>(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "" });
   const [errs, setErrs] = useState<Record<string, string>>({});
@@ -27,6 +30,7 @@ export default function MenuPage() {
   const [typed, setTyped] = useState("");
   const [pinErr, setPinErr] = useState("");
   const busy = useRef(false);
+  const [saving, setSaving] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => { const t = timers.current; return () => t.forEach(clearTimeout); }, []);
 
@@ -34,14 +38,23 @@ export default function MenuPage() {
 
   const close = () => { setPanel(null); setPhase("confirm"); setTyped(""); setPinErr(""); busy.current = false; };
   const openEdit = () => { setForm({ name: user.name, email: user.email, phone: user.phone }); setErrs({}); setPanel("edit"); };
-  const save = (e: React.FormEvent) => {
+  const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    const er = { name: checkName(form.name), email: checkEmail(form.email), phone: checkPhone(form.phone) };
+    if (saving) return;
+    // live는 이메일 변경 API가 없어 이메일 입력을 읽기 전용으로 두고 검사하지 않는다
+    const er = { name: checkName(form.name), email: IS_LIVE ? "" : checkEmail(form.email), phone: checkPhone(form.phone) };
     if (Object.values(er).some(Boolean)) { setErrs(er); return; }
-    updateUser({ name: form.name.trim(), email: form.email.trim(), phone: form.phone });
-    setSaved(true); close();
+    setSaving(true);
+    try {
+      await updateMe({ name: form.name.trim(), email: form.email.trim(), phone: form.phone });
+      setSaved(true); close();
+    } catch (x) {
+      const f = x instanceof ApiError ? x.fields : {};
+      setErrs({ name: f.userName ?? "", phone: f.phoneNum ?? (x instanceof ApiError && x.code === "DUPLICATE_PHONE" ? errorMessage(x) : ""), form: Object.keys(f).length || (x instanceof ApiError && x.code === "DUPLICATE_PHONE") ? "" : errorMessage(x) });
+    }
+    setSaving(false);
   };
-  const onPin = (pin: string) => {
+  const onPin = async (pin: string) => {
     if (busy.current) return;
     if (!checkPin(pin)) {
       setPinErr("PIN이 맞지 않아요. 다시 눌러 주세요.");
@@ -49,7 +62,12 @@ export default function MenuPage() {
       return;
     }
     busy.current = true;
-    withdraw();
+    try { await withdraw(pin); }
+    catch (x) {
+      busy.current = false;
+      setPinErr(errorMessage(x));
+      timers.current.push(setTimeout(() => setPinErr(""), 1500));
+    }
   };
 
   const rows: [string, string][] = [["이름", user.name], ["아이디", user.loginId], ["이메일", user.email], ["휴대폰", user.phone], ...(user.birth ? [["생년월일", user.birth] as [string, string]] : [])];
@@ -83,7 +101,7 @@ export default function MenuPage() {
         <section aria-labelledby="acct">
           <h2 id="acct" className="ian-t-title2" style={{ margin: "0 0 var(--ian-s-3)" }}>계정 관리</h2>
           <div className="ian-menu">
-            <button type="button" className="ian-menu__item" data-chev onClick={() => setPanel("reset")}><span className="ian-menu__main">비밀번호 재설정<span className="ian-menu__sub">재설정 방법을 안내해 드려요</span></span></button>
+            <button type="button" className="ian-menu__item" data-chev onClick={() => setPanel("reset")}><span className="ian-menu__main">비밀번호 재설정<span className="ian-menu__sub">{IS_LIVE ? "이메일 인증으로 새로 만들어요" : "재설정 방법을 안내해 드려요"}</span></span></button>
             <button type="button" className="ian-menu__item" onClick={logout}><span className="ian-menu__main">로그아웃</span></button>
             <button type="button" className="ian-menu__item" data-chev onClick={() => setPanel("withdraw")} style={{ color: "var(--ian-danger)" }}><span className="ian-menu__main">회원 탈퇴<span className="ian-menu__sub">되돌릴 수 없어요</span></span></button>
           </div>
@@ -94,13 +112,15 @@ export default function MenuPage() {
         <form className="ian-stack" onSubmit={save} noValidate style={{ gap: "var(--ian-s-4)" }}>
           <h2 className="ian-t-title2" style={{ margin: 0 }}>정보를 바꿔요</h2>
           <TextField id="ed-name" label="이름" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} autoComplete="name" error={errs.name} />
-          <TextField id="ed-email" label="이메일" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} autoComplete="email" error={errs.email} />
+          <TextField id="ed-email" label="이메일" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} autoComplete="email" error={errs.email} readOnly={IS_LIVE} hint={IS_LIVE ? "이메일은 여기서 바꿀 수 없어요." : undefined} />
           <TextField id="ed-phone" label="휴대폰 번호" inputMode="numeric" value={form.phone} onChange={(e) => setForm({ ...form, phone: fmtPhone(e.target.value) })} autoComplete="tel" error={errs.phone} />
-          <div className="ian-row"><button type="button" className="ian-btn ian-btn--outline" style={{ flex: 1 }} onClick={close}>취소</button><button type="submit" className="ian-btn ian-btn--primary" style={{ flex: 2 }}>저장</button></div>
+          {errs.form && <span className="ian-field__error" role="alert">{errs.form}</span>}
+          <div className="ian-row"><button type="button" className="ian-btn ian-btn--outline" style={{ flex: 1 }} onClick={close}>취소</button><button type="submit" className="ian-btn ian-btn--primary" style={{ flex: 2 }} disabled={saving} aria-busy={saving}>{saving ? "저장하고 있어요" : "저장"}</button></div>
         </form>
       </Sheet>
 
-      <Sheet open={panel === "reset"} onClose={close} label="비밀번호 재설정 안내">
+      {IS_LIVE && panel === "reset" && <ResetPassword open onClose={close} loginId={user.loginId} email={user.email} />}
+      <Sheet open={!IS_LIVE && panel === "reset"} onClose={close} label="비밀번호 재설정 안내">
         <div className="ian-stack" style={{ gap: "var(--ian-s-4)" }}>
           <h2 className="ian-t-title2" style={{ margin: 0 }}>비밀번호 재설정</h2>
           <div className="ian-notice"><div>로그아웃한 뒤 로그인 화면의 &lsquo;비밀번호 재설정&rsquo;에서 이메일 인증을 거쳐 바꿀 수 있어요. 이 데모에서는 아직 열리지 않았어요.</div></div>

@@ -2,6 +2,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
+import { IS_LIVE } from "@/lib/api/mode";
+import { useAccounts } from "@/lib/services/useAccounts";
+import { useTransferLimits } from "@/lib/services/useAccount";
 import { maskAccount, wonUnit, won } from "@/lib/format";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { Account } from "@/lib/types";
@@ -15,31 +18,36 @@ function Balance({ n, big }: { n: number; big?: boolean }) {
 
 export default function HomePage() {
   const s = useStore();
-  const hasData = Array.isArray(s.accounts);
-  const [phase, setPhase] = useState<Phase>("loading");
+  const { accounts, loading: aLoading, error: aError, refresh } = useAccounts();
+  // mock: 로딩 표시만 짧게 흉내 낸다. live: 실제 loading/error를 쓴다.
+  const [mockPhase, setMockPhase] = useState<Phase>("loading");
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    const t = setTimeout(() => setPhase(hasData ? "ok" : "error"), 350);
+    if (IS_LIVE) return;
+    const t = setTimeout(() => setMockPhase("ok"), 350);
     return () => clearTimeout(t);
-  }, [attempt, hasData]);
+  }, [attempt]);
 
-  const retry = () => { setPhase("loading"); setAttempt((a) => a + 1); };
+  const phase: Phase = IS_LIVE ? (aLoading ? "loading" : aError ? "error" : "ok") : mockPhase;
+  const retry = () => { if (IS_LIVE) { void refresh(); return; } setMockPhase("loading"); setAttempt((a) => a + 1); };
 
   const sorted = useMemo<Account[]>(() => {
-    if (!hasData) return [];
     const rank = (a: Account) => (a.status === "CLOSED" ? 2 : a.favorite ? 0 : 1);
-    return [...s.accounts].sort((a, b) => rank(a) - rank(b));
-  }, [s.accounts, hasData]);
+    return [...accounts].sort((a, b) => rank(a) - rank(b));
+  }, [accounts]);
 
   const main = sorted.find((a) => a.status !== "CLOSED") ?? sorted[0];
   const rest = sorted.filter((a) => a.id !== main?.id);
+  const { limits } = useTransferLimits(main?.id);
 
-  const cardCount = main ? s.cards.filter((c) => c.accountId === main.id && c.status !== "CLOSED" && c.status !== "REISSUED").length : 0;
-  const autoCount = main ? s.autos.filter((x) => x.fromId === main.id && x.active).length : 0;
-  const used = main ? s.usedToday(main.id) : 0;
-  const left = main ? Math.max(0, main.dailyLimit - used) : 0;
-  const pct = main && main.dailyLimit > 0 ? Math.min(100, Math.round((used / main.dailyLimit) * 100)) : 0;
+  // 카드·자동이체는 다른 도메인이라 live에서는 개수 대신 안내 문구만 쓴다.
+  const cardCount = !IS_LIVE && main ? s.cards.filter((c) => c.accountId === main.id && c.status !== "CLOSED" && c.status !== "REISSUED").length : 0;
+  const autoCount = !IS_LIVE && main ? s.autos.filter((x) => x.fromId === main.id && x.active).length : 0;
+  const dailyLimit = limits?.dailyLimit ?? 0;
+  const used = limits?.dailyUsed ?? 0;
+  const left = Math.max(0, dailyLimit - used);
+  const pct = dailyLimit > 0 ? Math.min(100, Math.round((used / dailyLimit) * 100)) : 0;
 
   return (
     <>
@@ -60,7 +68,7 @@ export default function HomePage() {
           <div className="ian-notice ian-notice--danger" role="alert">
             <div>
               <b className="ian-notice__title">계좌를 불러오지 못했어요</b>
-              네트워크 상태를 확인하고 다시 시도해 주세요.
+              {IS_LIVE && aError ? aError : "네트워크 상태를 확인하고 다시 시도해 주세요."}
               <div style={{ marginTop: "var(--ian-s-3)" }}><button type="button" className="ian-btn ian-btn--danger-soft ian-btn--sm" onClick={retry}>다시 불러오기</button></div>
             </div>
           </div>
@@ -100,10 +108,10 @@ export default function HomePage() {
                 <span className="ian-t-title2">거래내역</span><span className="ian-tile__sub">3개월 · 전체</span>
               </Link>
               <Link href="/cards" className="ian-tile ian-tile--ink">
-                <span className="ian-t-title2">카드</span><span className="ian-tile__sub">{cardCount > 0 ? `체크카드 ${cardCount}장` : "체크카드 신청하기"}</span>
+                <span className="ian-t-title2">카드</span><span className="ian-tile__sub">{IS_LIVE ? "카드 신청·관리" : cardCount > 0 ? `체크카드 ${cardCount}장` : "체크카드 신청하기"}</span>
               </Link>
               <Link href="/auto-transfers" className="ian-tile ian-tile--sun">
-                <span className="ian-t-title2">자동이체</span><span className="ian-tile__sub">{autoCount > 0 ? `실행 예정 ${autoCount}건` : "등록된 자동이체 없음"}</span>
+                <span className="ian-t-title2">자동이체</span><span className="ian-tile__sub">{IS_LIVE ? "자동이체 관리" : autoCount > 0 ? `실행 예정 ${autoCount}건` : "등록된 자동이체 없음"}</span>
               </Link>
 
               {main.status === "ACTIVE" ? (
@@ -113,7 +121,7 @@ export default function HomePage() {
                     <div className="ian-meter__bar" role="meter" aria-label="오늘 이체한도 사용률" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
                       <i style={{ "--v": `${pct}%` } as React.CSSProperties} />
                     </div>
-                    <div className="ian-row ian-row--between ian-t-micro"><span>사용 {wonUnit(used)}</span><span>1일 {wonUnit(main.dailyLimit)}</span></div>
+                    <div className="ian-row ian-row--between ian-t-micro"><span>사용 {wonUnit(used)}</span><span>1일 {wonUnit(dailyLimit)}</span></div>
                   </div>
                 </div>
               ) : (

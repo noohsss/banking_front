@@ -1,13 +1,19 @@
 "use client";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppBar } from "@/components/AppBar";
 import { Sheet } from "@/components/Sheet";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useStore } from "@/lib/store";
-import { fmtDate, fmtDay, fmtTime, signed, uid, won, wonUnit } from "@/lib/format";
+import { IS_LIVE } from "@/lib/api/mode";
+import { errorMessage } from "@/lib/api/errors";
+import { useAccount, useTransferLimits } from "@/lib/services/useAccount";
+import { useTransactions } from "@/lib/services/useTransactions";
+import { useStatements, type StatementRequest } from "@/lib/services/useStatements";
+import { fmtDate, fmtDay, fmtTime, signed, won, wonUnit } from "@/lib/format";
 import type { Tx } from "@/lib/types";
+import { AccountState } from "../_components/AccountState";
 import { Frame, SheetBody, useToast } from "../_components/Frame";
 import { CopyNumber } from "../_components/CopyNumber";
 import css from "./detail.module.css";
@@ -22,17 +28,17 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const onlyNum = (v: string) => v.replace(/\D/g, "").slice(0, 12);
 const fmtNum = (v: string) => (v ? Number(v).toLocaleString("ko-KR") : "");
 
-interface StatementReq { id: string; from: string; to: string; email: string; status: "접수됨" | "발송완료" }
-
 export default function AccountDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { getAccount, txs, usedToday, usedMonth, user } = useStore();
-  const acc = getAccount(id);
+  const { user } = useStore();
+  const { account: acc, loading: accLoading, error: accError, notFound, refresh: refreshAcc } = useAccount(id);
+  const { limits } = useTransferLimits(id);
   const [now] = useState(() => new Date());
   const { toast, showToast } = useToast();
 
-  const [loading, setLoading] = useState(true);
-  useEffect(() => { const t = setTimeout(() => setLoading(false), 300); return () => clearTimeout(t); }, []);
+  // mock: 로딩 표시만 짧게 흉내 낸다. live: 훅의 실제 loading을 쓴다.
+  const [mockLoading, setMockLoading] = useState(!IS_LIVE);
+  useEffect(() => { if (IS_LIVE) return; const t = setTimeout(() => setMockLoading(false), 300); return () => clearTimeout(t); }, []);
 
   // 조회 조건 (기본: 3개월 · 전체 · 최신순)
   const [period, setPeriod] = useState<PeriodKey>("3m");
@@ -53,10 +59,10 @@ export default function AccountDetailPage() {
   const [dlTo, setDlTo] = useState(iso(now));
   const [dlEmail, setDlEmail] = useState("");
   const [dlTried, setDlTried] = useState(false);
-  const [dlDone, setDlDone] = useState<StatementReq | null>(null);
-  const [reqs, setReqs] = useState<StatementReq[]>([]);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  useEffect(() => { const t = timers.current; return () => t.forEach(clearTimeout); }, []);
+  const [dlDone, setDlDone] = useState<StatementRequest | null>(null);
+  const [dlBusy, setDlBusy] = useState(false);
+  const [dlFail, setDlFail] = useState("");
+  const { requests: reqs, request: requestStatement, refresh: refreshStatements } = useStatements(id);
 
   const range = useMemo(() => {
     const p = PERIODS.find((x) => x.k === period);
@@ -72,18 +78,12 @@ export default function AccountDetailPage() {
   const amountErr = minN !== null && maxN !== null && minN > maxN ? "최소 금액이 최대 금액보다 커요. 금액 범위를 다시 입력해 주세요." : "";
   const filterErr = range.error || amountErr;
 
-  const list = useMemo(() => {
-    if (filterErr) return [];
-    const kw = q.trim().toLowerCase();
-    const numKw = kw.replace(/[,원\s]/g, "");
-    return txs
-      .filter((t) => t.accountId === id)
-      .filter((t) => { const d = new Date(t.at); return d >= range.start && d <= range.end; })
-      .filter((t) => dir === "ALL" || t.type === dir)
-      .filter((t) => (minN === null || t.amount >= minN) && (maxN === null || t.amount <= maxN))
-      .filter((t) => !kw || t.counterparty.toLowerCase().includes(kw) || t.memo.toLowerCase().includes(kw) || t.kind.includes(kw) || (/^\d+$/.test(numKw) && String(t.amount).includes(numKw)))
-      .sort((a, b) => (sort === "desc" ? b.at.localeCompare(a.at) : a.at.localeCompare(b.at)));
-  }, [txs, id, range, dir, minN, maxN, q, sort, filterErr]);
+  const hasFilter = !!q || dir !== "ALL" || !!minA || !!maxA || period !== "3m";
+  const tx = useTransactions(id, { start: range.start, end: range.end, dir, sort, q, min: minN, max: maxN, enabled: !filterErr });
+  const list = tx.items;
+  const loading = IS_LIVE ? tx.loading : mockLoading;
+  // 필터를 건 live 조회는 "거래가 있긴 한데 조건에 안 맞음"으로 안내한다
+  const anyTx = IS_LIVE ? hasFilter : tx.hasAny;
 
   const groups = useMemo(() => {
     const m = new Map<string, Tx[]>();
@@ -97,27 +97,13 @@ export default function AccountDetailPage() {
     return k === today ? "오늘" : k === fmtDate(y.toISOString()) ? "어제" : fmtDay(t.at);
   };
 
-  const hasFilter = !!q || dir !== "ALL" || !!minA || !!maxA || period !== "3m";
   const reset = () => { setPeriod("3m"); setDir("ALL"); setSort("desc"); setQ(""); setMinA(""); setMaxA(""); };
 
-  if (!acc) {
-    return (
-      <Frame>
-        <AppBar title="계좌" />
-        <div className="ian-screen__body">
-          <div className="ian-empty" role="alert">
-            <div className="ian-t-title2">계좌를 찾을 수 없어요</div>
-            <p className="ian-t-caption">없는 계좌이거나 내 계좌가 아니에요. 홈에서 계좌를 다시 골라 주세요.</p>
-            <Link href="/home" className="ian-btn ian-btn--primary">홈으로</Link>
-          </div>
-        </div>
-      </Frame>
-    );
-  }
+  if (!acc) return <AccountState title="계좌" loading={accLoading} error={accError} notFound={notFound} onRetry={() => void refreshAcc()} />;
 
   const canTransfer = acc.status === "ACTIVE";
   const reason = acc.status === "SUSPENDED" ? "거래중지 상태라 이체할 수 없어요. 계좌 관리에서 이메일 인증으로 해제해 주세요." : acc.status === "CLOSED" ? "해지된 계좌라 이체할 수 없어요. 거래내역은 계속 볼 수 있어요." : "";
-  const dUsed = usedToday(acc.id), mUsed = usedMonth(acc.id);
+  const dUsed = limits?.dailyUsed ?? 0, mUsed = limits?.monthlyUsed ?? 0;
   const dPct = Math.min(100, Math.round((dUsed / Math.max(1, acc.dailyLimit)) * 100));
 
   // 다운로드 검증
@@ -125,14 +111,14 @@ export default function AccountDetailPage() {
     range: !dlFrom || !dlTo ? "신청 기간을 모두 입력해 주세요." : dlFrom > dlTo ? "시작일이 종료일보다 늦어요. 날짜를 다시 골라 주세요." : dlTo > iso(now) ? "종료일은 오늘 이전으로 골라 주세요." : "",
     email: !dlEmail.trim() ? "받을 이메일을 입력해 주세요." : !EMAIL.test(dlEmail.trim()) ? "이메일 형식이 맞지 않아요. 예: name@example.com" : "",
   };
-  const openDl = () => { setDlEmail(user?.email ?? ""); setDlTried(false); setDlDone(null); setDlOpen(true); };
-  const submitDl = () => {
+  const openDl = () => { setDlEmail(user?.email ?? ""); setDlTried(false); setDlDone(null); setDlFail(""); void refreshStatements(); setDlOpen(true); };
+  const submitDl = async () => {
     setDlTried(true);
-    if (dlErr.range || dlErr.email) return;
-    const r: StatementReq = { id: uid("sr"), from: dlFrom, to: dlTo, email: dlEmail.trim(), status: "접수됨" };
-    setReqs((p) => [r, ...p]); setDlDone(r);
-    // 데모: 접수 뒤 몇 초 지나면 발송완료로 바뀐다(실제 발송은 별도 처리)
-    timers.current.push(setTimeout(() => setReqs((p) => p.map((x) => (x.id === r.id ? { ...x, status: "발송완료" } : x))), 4000));
+    if (dlErr.range || dlErr.email || dlBusy) return;
+    setDlBusy(true); setDlFail("");
+    try { setDlDone(await requestStatement(dlFrom, dlTo, dlEmail.trim())); }
+    catch (e) { setDlFail(errorMessage(e)); }
+    finally { setDlBusy(false); }
   };
 
   return (
@@ -190,9 +176,10 @@ export default function AccountDetailPage() {
                     <input id="dl-email" type="email" inputMode="email" autoComplete="email" className="ian-input" value={dlEmail} onChange={(e) => setDlEmail(e.target.value)} aria-invalid={dlTried && !!dlErr.email} aria-describedby={dlTried && dlErr.email ? "dl-email-err" : "dl-email-hint"} />
                     {dlTried && dlErr.email ? <span id="dl-email-err" className="ian-field__error" role="alert">{dlErr.email}</span> : <span id="dl-email-hint" className="ian-field__hint">신청하면 접수 상태로 시작해요. 발송이 끝나야 메일함에서 받아볼 수 있어요.</span>}
                   </div>
+                  {dlFail && <div className="ian-notice ian-notice--danger" role="alert"><div>{dlFail}</div></div>}
                   <div className="ian-row">
                     <button type="button" className="ian-btn ian-btn--outline" style={{ flex: 1 }} onClick={() => setDlOpen(false)}>취소</button>
-                    <button type="button" className="ian-btn ian-btn--primary" style={{ flex: 2 }} onClick={submitDl}>신청하기</button>
+                    <button type="button" className="ian-btn ian-btn--primary" style={{ flex: 2 }} onClick={() => void submitDl()} aria-busy={dlBusy} disabled={dlBusy}>{dlBusy ? "신청 중이에요" : "신청하기"}</button>
                   </div>
                 </>
               )}
@@ -237,7 +224,7 @@ export default function AccountDetailPage() {
         <section className={css.filters} aria-label="거래내역 조회 조건">
           <div className="ian-field">
             <label className="ian-field__label ian-sr" htmlFor="tx-q">거래 검색</label>
-            <input id="tx-q" type="search" className="ian-input" placeholder="상대방, 메모, 금액으로 검색" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input id="tx-q" type="search" className="ian-input" placeholder={IS_LIVE ? "상대방 이름으로 검색" : "상대방, 메모, 금액으로 검색"} value={q} onChange={(e) => setQ(e.target.value)} />
           </div>
           <div className={css.chips} role="group" aria-label="조회 기간">
             {PERIODS.map((p) => <button key={p.k} type="button" className="ian-chip" aria-pressed={period === p.k} onClick={() => setPeriod(p.k)}>{p.l}</button>)}
@@ -272,15 +259,22 @@ export default function AccountDetailPage() {
         <section aria-label="거래내역">
           <div className={css.count} style={{ marginBottom: "var(--ian-s-3)" }}>
             <b className="ian-t-title2">거래내역</b>
-            <span className="ian-t-caption" aria-live="polite">{loading ? "" : filterErr ? "" : `${list.length}건`}</span>
+            <span className="ian-t-caption" aria-live="polite">{loading ? "" : filterErr ? "" : `${IS_LIVE ? tx.total : list.length}건`}</span>
           </div>
           {loading ? (
             <div className="ian-stack" role="status" aria-label="거래내역을 불러오는 중이에요">
               {[0, 1, 2, 3].map((i) => <div key={i} className={`ian-skel ${css.skel}`} />)}
             </div>
-          ) : filterErr ? null : list.length === 0 ? (
+          ) : filterErr ? null : tx.error && list.length === 0 ? (
+            <div className="ian-notice ian-notice--danger" role="alert">
+              <div>
+                <b className="ian-notice__title">거래내역을 불러오지 못했어요</b>{tx.error}
+                <div style={{ marginTop: "var(--ian-s-3)" }}><button type="button" className="ian-btn ian-btn--danger-soft ian-btn--sm" onClick={() => void tx.refresh()}>다시 불러오기</button></div>
+              </div>
+            </div>
+          ) : list.length === 0 ? (
             <div className="ian-empty">
-              {txs.some((t) => t.accountId === id) ? (
+              {anyTx ? (
                 <>
                   <div className="ian-t-title2">조건에 맞는 거래가 없어요</div>
                   <p className="ian-t-caption">기간을 넓히거나 검색어·금액 범위를 바꿔 보세요.</p>
@@ -309,6 +303,10 @@ export default function AccountDetailPage() {
                   ))}
                 </div>
               ))}
+              {IS_LIVE && tx.hasMore && (
+                <button type="button" className="ian-btn ian-btn--soft ian-btn--block" onClick={() => void tx.loadMore()} disabled={tx.loadingMore} aria-busy={tx.loadingMore}>{tx.loadingMore ? "불러오는 중이에요" : "더 보기"}</button>
+              )}
+              {tx.error && <span className="ian-field__error" role="alert">{tx.error}</span>}
             </div>
           )}
         </section>
@@ -322,10 +320,10 @@ export default function AccountDetailPage() {
               {reqs.map((r) => (
                 <div key={r.id} className={css.reqRow}>
                   <span className="ian-t-caption">{r.from} ~ {r.to}<br />{r.email}</span>
-                  <span className={`ian-badge ${r.status === "발송완료" ? "ian-badge--ok" : "ian-badge--warn"}`} role="status">{r.status}</span>
+                  <span className={`ian-badge ${r.status === "발송완료" ? "ian-badge--ok" : r.status === "실패" ? "ian-badge--danger" : "ian-badge--warn"}`} role="status">{r.status}</span>
                 </div>
               ))}
-              <p className="ian-t-micro">접수됨은 신청만 끝난 상태예요. 발송완료가 되면 메일을 보냈다는 뜻이에요.</p>
+              <p className="ian-t-micro">접수됨은 신청만 끝난 상태예요. 발송완료가 되면 메일을 보냈다는 뜻이고, 실패면 다시 신청해 주세요.</p>
             </div>
           )}
         </section>

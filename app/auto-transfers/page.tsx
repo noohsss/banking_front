@@ -1,8 +1,13 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { AppBar } from "@/components/AppBar";
-import { useStore } from "@/lib/store";
+import { Sheet } from "@/components/Sheet";
+import { useAccounts } from "@/lib/services/useAccounts";
+import { useAutoTransfers } from "@/lib/services/useAutoTransfers";
+import { useTransfer } from "@/lib/services/useTransfer";
+import { IS_LIVE } from "@/lib/api/mode";
+import { errorMessage } from "@/lib/api/errors";
 import { maskAccount, won, wonUnit } from "@/lib/format";
 import type { AutoTransfer } from "@/lib/types";
 
@@ -41,8 +46,9 @@ const scheduleText = (a: Pick<AutoTransfer, "cycle" | "runDay">) => (a.cycle ===
 type View = "list" | "form" | "done";
 
 export default function AutoTransfersPage() {
-  const store = useStore();
-  const { accounts, autos } = store;
+  const { accounts, loading: accLoading, error: accError, refresh: refreshAccounts } = useAccounts();
+  const { autos, loading: autosLoading, error: autosError, refresh: refreshAutos, add, cancel, toggle } = useAutoTransfers();
+  const { lookup: lookupRecipient } = useTransfer();
   const usable = useMemo(() => accounts.filter((a) => a.status === "ACTIVE"), [accounts]);
   const todayKey = toKey(new Date());
   const tomorrowKey = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return toKey(d); })();
@@ -61,19 +67,32 @@ export default function AutoTransfersPage() {
   const [start, setStart] = useState(tomorrowKey);
   const [end, setEnd] = useState("");
   const [tried, setTried] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const lookupFor = useRef("");
+  const [confirmId, setConfirmId] = useState<string | null>(null); // live: 해지 확인
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [listError, setListError] = useState("");
 
   const openForm = () => {
     setFromId((usable.find((a) => a.id === fromId) ?? usable[0])?.id ?? "");
-    setNumber(""); setName(null); setLookupError(""); setAmountText(""); setCycle("MONTHLY"); setRunDay("1"); setStart(tomorrowKey); setEnd(""); setTried(false);
+    setNumber(""); setName(null); setLookupError(""); setAmountText(""); setCycle("MONTHLY"); setRunDay("1"); setStart(tomorrowKey); setEnd(""); setTried(false); setSubmitError(""); lookupFor.current = "";
     setView("form");
   };
 
   const from = accounts.find((a) => a.id === fromId);
   const amount = Number(amountText || 0);
 
-  const lookup = () => {
-    if (!ACCOUNT_RE.test(number)) { setName(null); setLookupError("계좌번호 11자리를 000-0000-0000 모양으로 입력해 주세요."); return; }
-    const n = store.lookupRecipient(number);
+  const lookup = async () => {
+    const num = number;
+    lookupFor.current = num;
+    if (!ACCOUNT_RE.test(num)) { setName(null); setLookupError("계좌번호 11자리를 000-0000-0000 모양으로 입력해 주세요."); return; }
+    let n: string | null;
+    try { n = await lookupRecipient(num); } catch (e) {
+      if (lookupFor.current === num) { setName(null); setLookupError(errorMessage(e)); }
+      return;
+    }
+    if (lookupFor.current !== num) return;
     if (!n) { setName(null); setLookupError("IAN Bank에서 확인되지 않는 계좌예요. 번호를 다시 확인해 주세요."); return; }
     setLookupError(""); setName(n);
   };
@@ -88,12 +107,15 @@ export default function AutoTransfersPage() {
   const valid = !Object.values(errors).some(Boolean);
   const show = (k: keyof typeof errors) => (tried || (k === "to" && !!lookupError) ? errors[k] : "");
 
-  const submit = () => {
+  const submit = async () => {
     setTried(true);
-    if (!valid || !from || !name) return;
-    const au = store.addAuto({ fromId: from.id, toNumber: number, toName: name, amount, cycle, runDay, startDate: start, endDate: end || undefined });
-    setCreated(au);
-    setView("done");
+    if (!valid || !from || !name || busy) return;
+    setBusy(true); setSubmitError("");
+    try {
+      const au = await add({ fromId: from.id, toNumber: number, toName: name, amount, cycle, runDay, startDate: start, endDate: end || undefined });
+      setCreated(au);
+      setView("done");
+    } catch (e) { setSubmitError(errorMessage(e)); } finally { setBusy(false); }
   };
 
   // ───────── 등록 결과 ─────────
@@ -139,6 +161,7 @@ export default function AutoTransfersPage() {
           ) : (
             <>
               <div className="ian-notice"><div>등록해도 바로 송금되지 않아요. 실행일에 이체되고, 그때 잔액과 한도를 다시 확인해요.</div></div>
+              {submitError && <div className="ian-notice ian-notice--danger" role="alert"><div>{submitError}</div></div>}
 
               <div className="ian-field">
                 <span className="ian-field__label" id="af-from">출금 계좌</span>
@@ -155,9 +178,9 @@ export default function AutoTransfersPage() {
                 <div className="ian-field--inline">
                   <input id="af-to" className="ian-input" inputMode="numeric" autoComplete="off" placeholder="000-0000-0000" value={number}
                     aria-invalid={show("to") ? true : undefined} aria-describedby="af-to-msg"
-                    onChange={(e) => { setNumber(formatNumber(e.target.value)); setName(null); setLookupError(""); }}
-                    onKeyDown={(e) => { if (e.key === "Enter") lookup(); }} />
-                  <button type="button" className="ian-btn ian-btn--soft" style={{ minHeight: 56 }} onClick={lookup}>수취인 확인</button>
+                    onChange={(e) => { lookupFor.current = ""; setNumber(formatNumber(e.target.value)); setName(null); setLookupError(""); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") void lookup(); }} />
+                  <button type="button" className="ian-btn ian-btn--soft" style={{ minHeight: 56 }} onClick={() => void lookup()}>수취인 확인</button>
                 </div>
                 {show("to")
                   ? <span id="af-to-msg" className="ian-field__error" role="alert">{show("to")}</span>
@@ -215,7 +238,7 @@ export default function AutoTransfersPage() {
         {usable.length > 0 && (
           <div className="ian-screen__footer ian-row">
             <button type="button" className="ian-btn ian-btn--outline" style={{ flex: 1 }} onClick={() => setView("list")}>취소</button>
-            <button type="button" className="ian-btn ian-btn--primary" style={{ flex: 2 }} onClick={submit}>등록하기</button>
+            <button type="button" className="ian-btn ian-btn--primary" style={{ flex: 2 }} disabled={busy} onClick={() => void submit()}>{busy ? "등록하고 있어요" : "등록하기"}</button>
           </div>
         )}
       </div>
@@ -223,10 +246,34 @@ export default function AutoTransfersPage() {
   }
 
   // ───────── 목록 ─────────
+  const loadError = autos.length === 0 && (autosError || (accounts.length === 0 && accError));
+  if (loadError || (autos.length === 0 && (autosLoading || (accLoading && accounts.length === 0)))) {
+    return (
+      <div className="ian-screen">
+        <AppBar title="자동이체" />
+        <div className="ian-screen__body">
+          <div className="ian-empty" role={loadError ? "alert" : "status"}>
+            <b className="ian-t-title2">{loadError ? "자동이체를 불러오지 못했어요" : "자동이체를 불러오고 있어요"}</b>
+            {loadError && <><span className="ian-t-caption">{autosError || accError}</span><button type="button" className="ian-btn ian-btn--primary ian-btn--sm" onClick={() => { void refreshAutos(); void refreshAccounts(); }}>다시 시도</button></>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const doCancel = async () => {
+    const id = confirmId;
+    if (!id) return;
+    setConfirmId(null); setCancelling(id); setListError("");
+    try { await cancel(id); } catch (e) { setListError(errorMessage(e)); } finally { setCancelling(null); }
+  };
+  const confirming = autos.find((a) => a.id === confirmId);
+
   return (
     <div className="ian-screen">
       <AppBar title="자동이체" />
       <div className="ian-screen__body">
+        {listError && <div className="ian-notice ian-notice--danger" role="alert"><div>{listError}</div></div>}
         {autos.length === 0 ? (
           <div className="ian-empty">
             <b className="ian-t-title2">등록된 자동이체가 없어요</b>
@@ -239,27 +286,34 @@ export default function AutoTransfersPage() {
             <div className="ian-stack" role="list">
               {autos.map((a) => {
                 const src = accounts.find((x) => x.id === a.fromId);
-                const nr = a.active ? nextRun(a, todayKey) : null;
+                const nr = !a.active ? null : a.nextRunDate !== undefined ? a.nextRunDate : nextRun(a, todayKey);
                 const ended = a.endDate && a.endDate < todayKey;
                 return (
                   <div key={a.id} role="listitem" className="ian-tile ian-tile--wide" style={{ minHeight: 0, opacity: a.active ? 1 : 0.8 }}>
                     <div className="ian-row ian-row--between">
                       <div style={{ minWidth: 0 }}>
-                        <b>{a.toName}</b>
+                        <b>{a.toName || maskAccount(a.toNumber)}</b>
                         <div className="ian-t-caption">{src?.alias ?? "출금 계좌"} {src ? maskAccount(src.number) : ""} → {maskAccount(a.toNumber)}</div>
                       </div>
-                      <label className="ian-row" style={{ gap: 8, minHeight: 48 }}>
-                        <span className="ian-t-caption" style={{ fontWeight: 700 }}>{a.active ? "켜짐" : "꺼짐"}</span>
-                        <span className="ian-switch">
-                          <input type="checkbox" role="switch" aria-label={`${a.toName} 자동이체`} checked={a.active} onChange={() => store.toggleAuto(a.id)} />
-                          <span className="ian-switch__track" /><span className="ian-switch__thumb" />
-                        </span>
-                      </label>
+                      {IS_LIVE ? (
+                        // 명세에는 일시정지·재개가 없고 해지(DELETE)만 있다. 해지하면 되돌릴 수 없다.
+                        a.active
+                          ? <button type="button" className="ian-btn ian-btn--outline ian-btn--sm" disabled={cancelling === a.id} onClick={() => setConfirmId(a.id)}>해지</button>
+                          : <span className="ian-t-caption" style={{ fontWeight: 700 }}>{a.status === "ENDED" ? "종료됨" : "해지됨"}</span>
+                      ) : (
+                        <label className="ian-row" style={{ gap: 8, minHeight: 48 }}>
+                          <span className="ian-t-caption" style={{ fontWeight: 700 }}>{a.active ? "켜짐" : "꺼짐"}</span>
+                          <span className="ian-switch">
+                            <input type="checkbox" role="switch" aria-label={`${a.toName} 자동이체`} checked={a.active} onChange={() => toggle(a.id)} />
+                            <span className="ian-switch__track" /><span className="ian-switch__thumb" />
+                          </span>
+                        </label>
+                      )}
                     </div>
                     <div className="ian-t-amount ian-num">{won(a.amount)}<span className="ian-unit">원</span></div>
                     <div className="ian-t-caption">
                       {scheduleText(a)} ·{" "}
-                      {!a.active ? "꺼져 있어서 실행하지 않아요" : ended ? "종료됐어요" : nr ? `다음 실행 ${fmtKey(nr)}` : "남은 실행일이 없어요"}
+                      {!a.active ? (IS_LIVE ? "실행하지 않아요" : "꺼져 있어서 실행하지 않아요") : ended ? "종료됐어요" : nr ? `다음 실행 ${fmtKey(nr)}` : "남은 실행일이 없어요"}
                       {a.endDate ? ` · ${fmtKey(a.endDate)}까지` : ""}
                     </div>
                   </div>
@@ -275,6 +329,14 @@ export default function AutoTransfersPage() {
           <Link href="/home" className="ian-btn ian-btn--ghost ian-btn--block">홈으로</Link>
         </div>
       )}
+      <Sheet open={!!confirming} onClose={() => setConfirmId(null)} label="자동이체 해지 확인">
+        <div className="ian-t-title2">{confirming?.toName || (confirming ? maskAccount(confirming.toNumber) : "")} 자동이체를<br />해지할까요?</div>
+        <div className="ian-t-caption">해지하면 더 이상 이체되지 않고, 다시 켤 수 없어요. 필요하면 새로 등록해 주세요.</div>
+        <div className="ian-row">
+          <button type="button" className="ian-btn ian-btn--outline" style={{ flex: 1 }} onClick={() => setConfirmId(null)}>취소</button>
+          <button type="button" className="ian-btn ian-btn--primary" style={{ flex: 2 }} onClick={() => void doCancel()}>해지하기</button>
+        </div>
+      </Sheet>
     </div>
   );
 }

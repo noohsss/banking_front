@@ -1,7 +1,7 @@
 export type AccountStatus = "ACTIVE" | "SUSPENDED" | "CLOSED";
 export type CardStatus = "ACTIVE" | "SUSPENDED" | "LOST" | "REISSUED" | "CLOSED";
 export type TransferStatus = "PENDING" | "SUCCESS" | "FAILED";
-export type TxKind = "이체" | "입금" | "카드결제" | "자동이체";
+export type TxKind = "이체" | "입금" | "출금" | "카드결제" | "자동이체";
 
 export interface User { id: string; loginId: string; name: string; email: string; phone: string; birth?: string }
 
@@ -41,7 +41,12 @@ export interface Card {
   overseas: boolean;
   issuedAt: string;
   replacedBy?: string;   // 재발급된 새 카드 id
+  network?: "VISA" | "MASTER" | "LOCAL"; // 카드 브랜드(live에서만)
+  expiry?: string;       // MM/YY (live에서만)
 }
+
+/** 카드 상세의 결제 알림 한 줄. mock은 사용내역에서, live는 GET /notifications에서 만든다. */
+export interface CardAlert { id: string; text: string; at: string; unread?: boolean; payId?: string }
 
 export interface CardPayment { id: string; cardId: string; merchant: string; amount: number; requestedAt: string; completedAt?: string }
 
@@ -49,11 +54,14 @@ export interface Recipient { id: string; alias: string; number: string; name: st
 
 export interface Transfer {
   id: string; fromId: string; toNumber: string; toName: string; amount: number; memo: string; at: string; status: TransferStatus;
+  failReason?: string;   // live: 실패 사유(서버 failReason)
 }
 
 export interface AutoTransfer {
   id: string; fromId: string; toNumber: string; toName: string; amount: number;
   cycle: "WEEKLY" | "MONTHLY"; runDay: string; startDate: string; endDate?: string; active: boolean;
+  status?: "ACTIVE" | "ENDED" | "CANCELED";  // live: 서버 상태(active = ACTIVE)
+  nextRunDate?: string | null;               // live: 서버가 계산한 다음 실행일(없으면 null)
 }
 
 export interface Member extends User { password: string; pin: string }
