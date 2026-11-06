@@ -1,0 +1,7 @@
+.tag { background: var(--ian-surface); color: var(--ian-ink); }
+.tagLost { background: #fff; color: var(--ian-danger); }
+.dim { opacity: 0.6; }
+.item { display: block; border-radius: var(--ian-r-tile); }
+.item:focus-visible { box-shadow: var(--ian-focus); }
+.list { display: grid; gap: var(--ian-s-4); margin: 0; padding: 0; list-style: none; }
+.sub { display: flex; justify-content: space-between; align-items: center; gap: var(--ian-s-3); padding: var(--ian-s-2) var(--ian-s-1) 0; }

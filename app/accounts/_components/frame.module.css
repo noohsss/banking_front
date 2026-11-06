@@ -1,0 +1,6 @@
+/* 시트·토스트가 스크롤 위치와 상관없이 화면 하단에 뜨도록, 스크롤 영역과 오버레이를 분리한 프레임 */
+.frame { position: relative; height: 100dvh; overflow: hidden; }
+@media (min-width: 560px) { .frame { height: calc(100dvh - 48px); } }
+.scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.toast { position: absolute; left: var(--ian-gutter); right: var(--ian-gutter); bottom: var(--ian-s-6); z-index: var(--ian-z-sheet); display: flex; justify-content: center; pointer-events: none; }
+.sheetBody { max-height: 72dvh; overflow-y: auto; display: grid; gap: var(--ian-s-4); padding: 6px 4px 4px; margin: -6px -4px -4px; }

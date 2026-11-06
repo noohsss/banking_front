@@ -1,0 +1,262 @@
+/* ==========================================================================
+   IAN Bank Design System v2 — components.css   (접두어 ian-)
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+.ian-app { font-family: var(--ian-font); font-size: var(--ian-fs-body); font-weight: var(--ian-fw-medium); line-height: var(--ian-lh-body); color: var(--ian-ink); background: var(--ian-bg); -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: anywhere; }
+:where(.ian-app) :where(button, input, select) { font: inherit; color: inherit; }
+.ian-app :where(h1,h2,h3,p,dl,dd) { margin: 0; }
+.ian-num { font-family: var(--ian-font-num); font-variant-numeric: tabular-nums; }
+.ian-app :focus-visible { outline: none; box-shadow: var(--ian-focus); border-radius: var(--ian-r-input); }
+.ian-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---- Type ---------------------------------------------------------------- */
+.ian-t-hero    { white-space: nowrap; font-family: var(--ian-font-num); font-size: var(--ian-fs-hero); font-weight: var(--ian-fw-black); letter-spacing: var(--ian-ls-tight); line-height: 1.05; font-variant-numeric: tabular-nums; }
+.ian-t-hero .ian-unit { font-family: var(--ian-font); font-size: 0.5em; font-weight: var(--ian-fw-bold); letter-spacing: 0; margin-left: 4px; }
+.ian-t-amount  { font-family: var(--ian-font-num); font-size: var(--ian-fs-amount); font-weight: var(--ian-fw-black); letter-spacing: var(--ian-ls-tight); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.ian-t-amount .ian-unit { font-family: var(--ian-font); font-size: 0.55em; font-weight: var(--ian-fw-bold); letter-spacing: 0; margin-left: 2px; }
+.ian-t-title1  { font-size: var(--ian-fs-title1); font-weight: var(--ian-fw-black); letter-spacing: var(--ian-ls-head); line-height: 1.25; }
+.ian-t-title2  { font-size: var(--ian-fs-title2); font-weight: var(--ian-fw-bold); letter-spacing: var(--ian-ls-head); line-height: 1.3; }
+.ian-t-body    { font-size: var(--ian-fs-body); }
+.ian-t-caption { font-size: var(--ian-fs-caption); color: var(--ian-ink-3); line-height: 1.45; }
+.ian-t-micro   { font-size: var(--ian-fs-micro); color: var(--ian-ink-3); }
+
+/* ---- Layout -------------------------------------------------------------- */
+.ian-screen { min-height: 100%; display: flex; flex-direction: column; background: var(--ian-bg); }
+.ian-screen__body { flex: 1; padding: var(--ian-s-3) var(--ian-gutter) 112px; display: flex; flex-direction: column; gap: var(--ian-s-6); }
+.ian-screen__footer { position: sticky; bottom: 0; padding: var(--ian-s-3) var(--ian-gutter) calc(var(--ian-s-5) + env(safe-area-inset-bottom)); background: linear-gradient(to top, var(--ian-bg) 70%, transparent); display: grid; gap: var(--ian-s-2); }
+.ian-stack { display: flex; flex-direction: column; gap: var(--ian-s-3); }
+.ian-row { display: flex; align-items: center; gap: var(--ian-s-3); }
+.ian-row--between { justify-content: space-between; }
+.ian-section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: var(--ian-s-3); }
+
+/* ---- App bar / Dock (하단: 떠 있는 어두운 알약) --------------------------- */
+.ian-appbar { position: sticky; top: 0; z-index: var(--ian-z-bar); display: grid; grid-template-columns: var(--ian-tap) 1fr var(--ian-tap); align-items: center; height: 60px; padding: 0 var(--ian-s-2); background: var(--ian-bg); }
+.ian-appbar--left { grid-template-columns: 1fr auto; padding-left: var(--ian-gutter); }
+.ian-appbar__title { text-align: center; font-weight: var(--ian-fw-bold); }
+.ian-iconbtn { position: relative; width: var(--ian-tap); height: var(--ian-tap); display: inline-grid; place-items: center; background: none; border: 0; border-radius: var(--ian-r-pill); cursor: pointer; font-size: 1.25rem; }
+.ian-iconbtn:active { background: var(--ian-fill); }
+.ian-iconbtn[data-dot]::after { content: ""; position: absolute; top: 11px; right: 11px; width: 9px; height: 9px; border-radius: 50%; background: var(--ian-bright); border: 2px solid var(--ian-bg); }
+
+.ian-dock { position: sticky; bottom: 16px; z-index: var(--ian-z-bar); margin: 0 var(--ian-gutter); display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px; background: var(--ian-inverse); border-radius: var(--ian-r-pill); box-shadow: var(--ian-shadow-dock); }
+.ian-dock__item { display: grid; justify-items: center; gap: 1px; padding: 7px 0 6px; border-radius: var(--ian-r-pill); color: rgb(255 255 255 / 0.72); font-size: var(--ian-fs-micro); font-weight: var(--ian-fw-semibold); text-decoration: none; background: none; border: 0; cursor: pointer; }
+.ian-dock__item[aria-current="page"] { background: var(--ian-dock-on-bg, var(--ian-brand)); color: var(--ian-dock-on-fg, var(--ian-on-brand)); font-weight: var(--ian-fw-black); }
+
+/* ---- Stepper ------------------------------------------------------------- */
+.ian-stepper { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.ian-stepper__seg { height: 6px; background: var(--ian-line); border-radius: var(--ian-r-pill); }
+.ian-stepper__seg[data-state="done"] { background: var(--ian-peri); }
+.ian-stepper__seg[data-state="current"] { background: var(--ian-brand); }
+
+/* ---- Button -------------------------------------------------------------- */
+.ian-btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--ian-s-2); min-height: 56px; padding: 0 var(--ian-s-6); border: 0; border-radius: var(--ian-r-pill); font-size: var(--ian-fs-body); font-weight: var(--ian-fw-black); letter-spacing: -0.01em; cursor: pointer; text-decoration: none; transition: transform var(--ian-dur-1) var(--ian-ease), background var(--ian-dur-1); }
+.ian-btn:active { transform: scale(0.97); }
+.ian-btn--block { width: 100%; }
+.ian-btn--primary { background: var(--ian-brand); color: var(--ian-on-brand); }
+.ian-btn--primary:active { filter: brightness(0.92); }
+.ian-btn--dark { background: var(--ian-inverse); color: var(--ian-on-inverse); }
+.ian-btn--soft { background: var(--ian-brand-100); color: var(--ian-ink); }
+.ian-btn--outline { background: transparent; color: var(--ian-ink); box-shadow: inset 0 0 0 2px var(--ian-ink); }
+.ian-btn--ghost { background: none; color: var(--ian-blue-500); min-height: 40px; padding: 0 var(--ian-s-3); }
+.ian-btn--danger { background: var(--ian-danger-solid); color: #fff; }
+.ian-btn--danger-soft { background: var(--ian-danger-bg); color: var(--ian-danger); }
+.ian-btn--sm { min-height: 40px; padding: 0 var(--ian-s-4); font-size: var(--ian-fs-caption); }
+.ian-btn:disabled, .ian-btn[aria-disabled="true"] { background: var(--ian-fill); color: var(--ian-disabled-fg); box-shadow: none; cursor: not-allowed; transform: none; }
+.ian-btn[aria-busy="true"] { pointer-events: none; }
+.ian-btn[aria-busy="true"]::before { content: ""; width: 18px; height: 18px; border: 3px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: ian-spin 0.7s linear infinite; }
+@keyframes ian-spin { to { transform: rotate(360deg); } }
+
+/* ---- Field (채움형: 테두리 없이 회색 바탕) -------------------------------- */
+.ian-field { display: grid; gap: var(--ian-s-2); }
+.ian-field__label { font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-bold); color: var(--ian-ink-2); }
+.ian-req { color: var(--ian-brand-deep); margin-left: 2px; }
+.ian-input { width: 100%; min-height: 56px; padding: 0 var(--ian-s-5); background: var(--ian-fill); border: 2px solid transparent; border-radius: var(--ian-r-input); font-size: 1rem; font-weight: var(--ian-fw-semibold); }
+.ian-input::placeholder { color: var(--ian-disabled-fg); font-weight: var(--ian-fw-medium); }
+.ian-input:focus { outline: none; box-shadow: none; background: var(--ian-surface); border-color: var(--ian-ink); }
+.ian-input[aria-invalid="true"] { background: var(--ian-danger-bg); border-color: var(--ian-danger); }
+.ian-input:disabled { color: var(--ian-disabled-fg); }
+.ian-field__hint { font-size: var(--ian-fs-caption); color: var(--ian-ink-3); }
+.ian-field__error { display: flex; gap: 6px; font-size: var(--ian-fs-caption); color: var(--ian-danger); font-weight: var(--ian-fw-bold); }
+.ian-field__error::before { content: "!"; flex: none; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; background: var(--ian-danger-solid); color: #fff; font-size: 11px; margin-top: 2px; }
+.ian-field--inline { display: grid; grid-template-columns: 1fr auto; gap: var(--ian-s-2); align-items: stretch; }
+
+/* 금액: 화면 전체가 입력 */
+.ian-amount { display: grid; gap: var(--ian-s-2); padding: var(--ian-s-4) 0; }
+.ian-amount__line { display: flex; align-items: baseline; gap: var(--ian-s-2); }
+.ian-amount__input { flex: 0 1 auto; width: 7.2ch; min-width: 0; field-sizing: content; border: 0; background: none; padding: 0; font-family: var(--ian-font-num); font-size: var(--ian-fs-hero); font-weight: var(--ian-fw-black); letter-spacing: var(--ian-ls-tight); font-variant-numeric: tabular-nums; }
+.ian-amount__input:focus { outline: none; box-shadow: none; }
+.ian-amount__unit { font-size: var(--ian-fs-title1); font-weight: var(--ian-fw-bold); }
+.ian-amount[data-invalid="true"] { color: var(--ian-danger); }
+.ian-quick { display: flex; gap: var(--ian-s-2); flex-wrap: wrap; }
+
+/* ---- Segmented / Chip / Switch / Check ----------------------------------- */
+.ian-segmented { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 4px; background: var(--ian-fill); border-radius: var(--ian-r-pill); }
+.ian-segmented__opt { min-height: 40px; border: 0; background: none; border-radius: var(--ian-r-pill); font-weight: var(--ian-fw-semibold); color: var(--ian-ink-2); cursor: pointer; }
+.ian-segmented__opt[aria-pressed="true"] { background: var(--ian-seg-on-bg, var(--ian-inverse)); color: var(--ian-seg-on-fg, var(--ian-on-inverse)); font-weight: var(--ian-fw-black); }
+
+.ian-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 var(--ian-s-4); border: 0; border-radius: var(--ian-r-pill); background: var(--ian-surface); box-shadow: inset 0 0 0 1.5px var(--ian-line); font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-bold); color: var(--ian-ink-2); cursor: pointer; }
+.ian-chip[aria-pressed="true"] { background: var(--ian-brand); box-shadow: none; color: var(--ian-on-brand); }
+
+.ian-switch { position: relative; width: 56px; height: 32px; flex: none; }
+.ian-switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+.ian-switch__track { position: absolute; inset: 0; background: var(--ian-line); border-radius: var(--ian-r-pill); transition: background var(--ian-dur-1); }
+.ian-switch__thumb { position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; background: #fff; border-radius: 50%; transition: transform var(--ian-dur-2) var(--ian-ease); display: grid; place-items: center; font-size: 12px; font-weight: var(--ian-fw-black); color: transparent; }
+.ian-switch input:checked ~ .ian-switch__track { background: var(--ian-bright); }
+.ian-switch input:checked ~ .ian-switch__thumb { transform: translateX(24px); color: var(--ian-bright); }
+.ian-switch input:checked ~ .ian-switch__thumb::before { content: "✓"; }
+.ian-switch input:focus-visible ~ .ian-switch__track { box-shadow: var(--ian-focus); }
+
+.ian-check { display: flex; gap: var(--ian-s-3); align-items: flex-start; min-height: var(--ian-tap); padding: var(--ian-s-3) 0; cursor: pointer; }
+.ian-check input { appearance: none; flex: none; width: 26px; height: 26px; margin: 0; border-radius: 50%; background: var(--ian-fill); display: grid; place-items: center; cursor: pointer; }
+.ian-check input:checked { background: var(--ian-brand); }
+.ian-check input:checked::after { content: "✓"; color: var(--ian-on-brand); font-size: 15px; font-weight: var(--ian-fw-black); }
+.ian-check__tag { font-size: var(--ian-fs-micro); font-weight: var(--ian-fw-black); margin-right: 6px; color: var(--ian-brand-deep); }
+.ian-check__tag--opt { color: var(--ian-ink-3); }
+
+/* ---- Badge (알약 + 점/기호 + 문구) -------------------------------------- */
+.ian-badge { display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 10px; border-radius: var(--ian-r-pill); font-size: var(--ian-fs-micro); font-weight: var(--ian-fw-bold); white-space: nowrap; background: var(--ian-fill); color: var(--ian-ink-2); }
+.ian-badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.ian-badge--ok     { background: var(--ian-mint-bg); color: var(--ian-mint-fg); }
+.ian-badge--warn   { background: var(--ian-warning-bg); color: var(--ian-warning); } .ian-badge--warn::before   { border-radius: 1px; transform: rotate(45deg); }
+.ian-badge--danger { background: var(--ian-danger-bg); color: var(--ian-danger); }   .ian-badge--danger::before { border-radius: 1px; }
+.ian-badge--info   { background: var(--ian-fill); color: var(--ian-ink-2); }
+.ian-badge--muted  { background: var(--ian-fill); color: var(--ian-ink-3); }         .ian-badge--muted::before  { background: none; border: 1.5px solid currentColor; }
+
+/* ---- Notice -------------------------------------------------------------- */
+.ian-notice { display: grid; grid-template-columns: auto 1fr; gap: var(--ian-s-3); padding: var(--ian-s-4) var(--ian-s-5); border-radius: var(--ian-r-input); font-size: var(--ian-fs-caption); line-height: 1.5; background: var(--ian-brand-50); }
+.ian-notice::before { content: "i"; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--ian-bright); color: #fff; font-size: 12px; font-weight: var(--ian-fw-black); }
+.ian-notice__title { display: block; font-weight: var(--ian-fw-black); font-size: var(--ian-fs-body); margin-bottom: 2px; }
+.ian-notice--warn { background: var(--ian-warning-bg); } .ian-notice--warn::before { content: "!"; background: var(--ian-warning); color: var(--ian-warning-bg); }
+.ian-notice--danger { background: var(--ian-danger-bg); } .ian-notice--danger::before { content: "!"; background: var(--ian-danger-solid); }
+
+/* ---- Bento: 크기·색이 다른 타일 ----------------------------------------- */
+.ian-bento { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ian-s-3); }
+.ian-tile { position: relative; padding: var(--ian-s-5); border-radius: var(--ian-r-tile); background: var(--ian-surface); display: flex; flex-direction: column; justify-content: space-between; gap: var(--ian-s-3); min-height: 132px; text-decoration: none; color: inherit; border: 0; text-align: left; }
+.ian-tile--wide { grid-column: span 2; }
+.ian-tile--brand { background: var(--ian-brand); color: var(--ian-on-brand); }
+.ian-tile--ink   { background: var(--ian-inverse); color: var(--ian-on-inverse); }
+.ian-tile--tint  { background: var(--ian-brand-100); }
+.ian-tile--soft  { background: var(--ian-brand-200); }
+.ian-tile--sun  { background: var(--ian-sun); color: var(--ian-on-accent); }
+.ian-tile--sun .ian-t-caption, .ian-tile--sun .ian-tile__sub { color: rgb(15 26 58 / 0.72); }
+.ian-tile--accent { background: var(--ian-bright); color: #fff; }
+.ian-tile--accent .ian-t-caption, .ian-tile--accent .ian-tile__sub { color: rgb(255 255 255 / 0.8); }
+.ian-tile--ink .ian-t-caption, .ian-tile--ink .ian-tile__sub { color: rgb(255 255 255 / 0.72); }
+.ian-tile--brand .ian-t-caption, .ian-tile--brand .ian-tile__sub { color: rgb(var(--ian-on-brand-rgb) / 0.78); }
+.ian-tile--brand .ian-acct__copy { background: rgb(var(--ian-on-brand-rgb) / 0.16); }
+.ian-tile__sub { font-size: var(--ian-fs-caption); color: var(--ian-ink-3); font-weight: var(--ian-fw-semibold); }
+.ian-tile[data-status="SUSPENDED"] { box-shadow: inset 0 0 0 2px var(--ian-warning); }
+.ian-tile[data-status="CLOSED"] { background: var(--ian-fill); color: var(--ian-ink-3); }
+
+/* 계좌번호 */
+.ian-acct { display: inline-flex; align-items: center; gap: var(--ian-s-2); font-family: var(--ian-font-num); font-variant-numeric: tabular-nums; font-size: var(--ian-fs-caption); }
+.ian-acct__copy { min-height: 28px; padding: 0 10px; border: 0; border-radius: var(--ian-r-pill); background: rgb(var(--ian-ink-rgb) / 0.1); font-family: var(--ian-font); font-size: var(--ian-fs-micro); font-weight: var(--ian-fw-bold); cursor: pointer; }
+.ian-tile--ink .ian-acct__copy { background: rgba(255,255,255,0.16); color: #fff; }
+
+/* ---- 이체한도 미터 ------------------------------------------------------- */
+.ian-meter { display: grid; gap: var(--ian-s-2); }
+.ian-meter__bar { height: 10px; background: var(--ian-fill); border-radius: var(--ian-r-pill); overflow: hidden; }
+.ian-meter__bar > i { display: block; height: 100%; width: var(--v, 0%); background: var(--ian-bright); border-radius: var(--ian-r-pill); }
+.ian-meter[data-level="high"] .ian-meter__bar > i { background: var(--ian-warning); }
+.ian-tile--ink .ian-meter__bar { background: rgba(255,255,255,0.16); }
+
+/* ---- Avatar rail (자주 쓰는 계좌·최근 이체) ------------------------------- */
+.ian-rail { display: flex; gap: var(--ian-s-4); overflow-x: auto; margin: 0 calc(var(--ian-gutter) * -1); padding: 0 var(--ian-gutter) 2px; scrollbar-width: none; }
+.ian-rail::-webkit-scrollbar { display: none; }
+.ian-person { flex: none; display: grid; justify-items: center; gap: 6px; width: 64px; background: none; border: 0; cursor: pointer; font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-bold); }
+.ian-avatar { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%; background: var(--ian-brand-100); color: var(--ian-ink); font-weight: var(--ian-fw-black); font-size: 1.125rem; }
+.ian-person[aria-pressed="true"] .ian-avatar { background: var(--ian-bright); color: #fff; box-shadow: 0 0 0 3px var(--ian-bg), 0 0 0 5px var(--ian-ink); }
+.ian-avatar[data-tone="2"] { background: var(--ian-brand-200); }
+.ian-avatar[data-tone="4"] { background: var(--ian-sun); color: var(--ian-on-accent); }
+.ian-avatar[data-tone="5"] { background: var(--ian-mint); color: var(--ian-on-accent); }
+.ian-avatar[data-tone="7"] { background: var(--ian-violet); color: var(--ian-on-accent); }
+.ian-avatar[data-tone="3"] { background: var(--ian-peri); color: #0f1a3a; }
+.ian-person--add .ian-avatar { background: none; box-shadow: inset 0 0 0 2px var(--ian-line); color: var(--ian-ink-3); }
+.ian-star { background: none; border: 0; min-width: 40px; min-height: 40px; cursor: pointer; font-size: 1.25rem; color: var(--ian-line); }
+.ian-star[aria-pressed="true"] { color: var(--ian-brand); }
+
+/* ---- Timeline (거래내역): 구분선 없이 날짜 머리글과 간격 ------------------- */
+.ian-timeline { display: grid; gap: var(--ian-s-1); }
+.ian-timeline__day { margin: var(--ian-s-4) 0 var(--ian-s-1); font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-black); color: var(--ian-ink-3); }
+.ian-timeline__day:first-child { margin-top: 0; }
+.ian-tx { display: grid; grid-template-columns: 44px 1fr auto; gap: 0 var(--ian-s-3); align-items: center; padding: var(--ian-s-3) var(--ian-s-3); margin: 0 calc(var(--ian-s-3) * -1); width: calc(100% + var(--ian-s-3) * 2); background: none; border: 0; border-radius: var(--ian-r-input); text-align: left; cursor: pointer; }
+.ian-tx:active { background: var(--ian-fill); }
+.ian-tx__icon { grid-row: span 2; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: var(--ian-fill); font-weight: var(--ian-fw-black); }
+.ian-tx[data-dir="IN"] .ian-tx__icon { background: var(--ian-bright); color: #fff; }
+.ian-tx__who { font-weight: var(--ian-fw-bold); }
+.ian-tx__amt { font-family: var(--ian-font-num); font-weight: var(--ian-fw-black); font-variant-numeric: tabular-nums; text-align: right; letter-spacing: -0.02em; }
+.ian-tx[data-dir="IN"] .ian-tx__amt { color: var(--ian-money-in); }
+.ian-tx__meta, .ian-tx__bal { font-size: var(--ian-fs-caption); color: var(--ian-ink-3); }
+.ian-tx__bal { text-align: right; font-family: var(--ian-font-num); font-variant-numeric: tabular-nums; }
+.ian-tx[data-failed="true"] .ian-tx__amt { text-decoration: line-through; color: var(--ian-ink-3); }
+
+/* ---- Receipt (이체 확인 요약): 영수증 모양 ------------------------------- */
+.ian-receipt { position: relative; padding: var(--ian-s-6) var(--ian-s-5); background: var(--ian-surface); border-radius: var(--ian-r-tile); display: grid; gap: var(--ian-s-4); }
+.ian-receipt__who { display: flex; align-items: center; gap: var(--ian-s-3); }
+.ian-receipt__rows { display: grid; gap: var(--ian-s-3); margin: 0; padding-top: var(--ian-s-4); border-top: 2px dashed var(--ian-line); }
+.ian-receipt__row { display: flex; justify-content: space-between; gap: var(--ian-s-4); }
+.ian-receipt__row dt { color: var(--ian-ink-3); font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-semibold); }
+.ian-receipt__row dd { margin: 0; font-weight: var(--ian-fw-bold); text-align: right; }
+.ian-receipt__row--total dd { font-family: var(--ian-font-num); font-weight: var(--ian-fw-black); font-size: var(--ian-fs-title2); }
+
+/* ---- List row (설정·메뉴) ------------------------------------------------ */
+.ian-menu { display: grid; gap: 2px; }
+.ian-menu__item { display: flex; align-items: center; gap: var(--ian-s-3); min-height: 60px; padding: var(--ian-s-3) var(--ian-s-4); background: var(--ian-surface); border: 0; width: 100%; text-align: left; cursor: pointer; text-decoration: none; color: inherit; font-weight: var(--ian-fw-bold); }
+.ian-menu__item:first-child { border-radius: var(--ian-r-tile) var(--ian-r-tile) 6px 6px; }
+.ian-menu__item:last-child  { border-radius: 6px 6px var(--ian-r-tile) var(--ian-r-tile); }
+.ian-menu__item:only-child  { border-radius: var(--ian-r-tile); }
+.ian-menu__main { flex: 1; min-width: 0; }
+.ian-menu__sub { display: block; font-size: var(--ian-fs-caption); color: var(--ian-ink-3); font-weight: var(--ian-fw-medium); }
+.ian-menu__item[data-chev]::after { content: "›"; color: var(--ian-ink-3); font-size: 1.5rem; line-height: 1; }
+
+/* ---- PIN + keypad (원형) ------------------------------------------------- */
+.ian-pin { display: flex; justify-content: center; gap: var(--ian-s-4); padding: var(--ian-s-6) 0; }
+.ian-pin__dot { width: 18px; height: 18px; border-radius: 50%; background: var(--ian-line); transition: transform var(--ian-dur-1) var(--ian-ease), background var(--ian-dur-1); }
+.ian-pin__dot[data-filled="true"] { background: var(--ian-bright); transform: scale(1.2); box-shadow: 0 0 0 3px var(--ian-brand-100); }
+.ian-pin[data-error="true"] .ian-pin__dot { background: var(--ian-danger); box-shadow: 0 0 0 3px var(--ian-danger-bg); }
+.ian-pin[data-error="true"] { animation: ian-shake 280ms var(--ian-ease); }
+@keyframes ian-shake { 20% { transform: translateX(-8px); } 60% { transform: translateX(8px); } 100% { transform: none; } }
+
+.ian-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--ian-s-3) var(--ian-s-6); padding: var(--ian-s-4) var(--ian-s-8) var(--ian-s-6); justify-items: center; }
+.ian-keypad__key { width: 72px; height: 72px; border: 0; border-radius: 50%; background: var(--ian-surface); font-family: var(--ian-font-num); font-size: 1.5rem; font-weight: var(--ian-fw-bold); cursor: pointer; }
+.ian-keypad__key:active { background: var(--ian-brand); color: var(--ian-on-brand); }
+.ian-keypad__key--fn { background: none; font-family: var(--ian-font); font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-bold); color: var(--ian-ink-2); }
+
+/* ---- Sheet / Toast ------------------------------------------------------- */
+.ian-scrim { position: absolute; inset: 0; background: rgb(var(--ian-shadow-rgb) / 0.55); z-index: calc(var(--ian-z-sheet) - 1); }
+.ian-sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: var(--ian-z-sheet); background: var(--ian-sheet-bg); border-radius: var(--ian-r-sheet); box-shadow: var(--ian-shadow-sheet); padding: var(--ian-s-3) var(--ian-gutter) calc(var(--ian-s-6) + env(safe-area-inset-bottom)); display: grid; gap: var(--ian-s-4); animation: ian-sheet-in var(--ian-dur-2) var(--ian-ease); }
+.ian-sheet__grip { width: 40px; height: 5px; background: var(--ian-line); border-radius: var(--ian-r-pill); margin: 0 auto var(--ian-s-1); }
+@keyframes ian-sheet-in { from { transform: translateY(32px); opacity: 0; } }
+.ian-toast { display: flex; gap: var(--ian-s-3); align-items: center; padding: var(--ian-s-3) var(--ian-s-5) var(--ian-s-3) var(--ian-s-3); background: var(--ian-inverse); color: var(--ian-on-inverse); border-radius: var(--ian-r-pill); font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-bold); width: fit-content; }
+.ian-toast__mark { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: var(--ian-mint); color: var(--ian-on-accent); }
+
+/* ---- Result -------------------------------------------------------------- */
+.ian-result { display: grid; gap: var(--ian-s-3); padding: var(--ian-s-8) 0 var(--ian-s-4); }
+.ian-result__mark { width: 72px; height: 72px; display: grid; place-items: center; border-radius: 50%; font-size: 36px; font-weight: var(--ian-fw-black); background: var(--ian-brand); color: var(--ian-on-brand); }
+.ian-result[data-state="failed"]  .ian-result__mark { background: var(--ian-danger-solid); color: #fff; }
+.ian-result[data-state="pending"] .ian-result__mark { background: var(--ian-warning-bg); color: var(--ian-warning); }
+.ian-result[data-state="success"] .ian-result__mark::after { content: "✓"; }
+.ian-result[data-state="failed"]  .ian-result__mark::after { content: "×"; }
+.ian-result[data-state="pending"] .ian-result__mark::after { content: "…"; }
+.ian-result__desc { color: var(--ian-ink-2); }
+
+/* ---- Empty / Skeleton ---------------------------------------------------- */
+.ian-empty { display: grid; justify-items: start; gap: var(--ian-s-3); padding: var(--ian-s-6); background: var(--ian-brand-50); border-radius: var(--ian-r-tile); }
+.ian-skel { background: linear-gradient(90deg, var(--ian-fill) 25%, var(--ian-surface) 50%, var(--ian-fill) 75%); background-size: 200% 100%; animation: ian-skel 1.4s linear infinite; border-radius: var(--ian-r-input); min-height: 16px; }
+@keyframes ian-skel { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .ian-skel, .ian-btn[aria-busy="true"]::before, .ian-pin[data-error="true"] { animation: none; } }
+
+/* ---- Check card ---------------------------------------------------------- */
+.ian-card { position: relative; aspect-ratio: 1.586; width: 100%; padding: var(--ian-s-5); border-radius: var(--ian-r-tile); background: var(--ian-brand); color: var(--ian-on-brand); display: grid; align-content: space-between; overflow: hidden; }
+.ian-card::after { content: ""; position: absolute; right: -30px; bottom: -50px; width: 190px; height: 190px; border-radius: 50%; background: var(--ian-peri); opacity: 0.75; }
+.ian-card::before { content: ""; position: absolute; right: 150px; bottom: 40px; width: 26px; height: 26px; border-radius: 50%; background: var(--ian-sun); }
+.ian-card > * { position: relative; z-index: 1; }
+.ian-card__num { font-family: var(--ian-font-num); font-size: 1.125rem; font-weight: var(--ian-fw-bold); letter-spacing: 0.1em; }
+.ian-card__meta { display: flex; justify-content: space-between; align-items: flex-end; font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-bold); }
+.ian-card[data-status="SUSPENDED"], .ian-card[data-status="REISSUED"], .ian-card[data-status="CANCELED"] { background: var(--ian-line); color: var(--ian-ink-2); }
+.ian-card[data-status="SUSPENDED"]::after, .ian-card[data-status="REISSUED"]::after, .ian-card[data-status="CANCELED"]::after { background: var(--ian-surface); }
+.ian-card[data-status="LOST"] { background: var(--ian-danger-solid); color: #fff; }
+.ian-card[data-status="LOST"]::after { background: #fff; opacity: 0.18; }
+
+.ian-money-in { color: var(--ian-money-in); }

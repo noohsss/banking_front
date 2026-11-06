@@ -1,0 +1,135 @@
+/* ==========================================================================
+   IAN Bank Design System — tokens.css
+   네이비 중심의 블루 계열. 라이트가 기본이고 다크 모드를 지원한다(파일 맨 아래).
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+  /* ---- Identity: 네이비를 중심으로 한 블루 계열 --------------------------- */
+  --ian-brand:      #243b7a;   /* 네이비. 기본 버튼·큰 타일·선택 (위에는 흰 글자) */
+  --ian-brand-deep: #243b7a;   /* 흰 배경 위 글자 (대비 10.6:1) */
+  --ian-on-brand:   #ffffff;
+  --ian-on-brand-rgb: 255 255 255;
+  --ian-blue-500:   #3b63c9;   /* 중간 블루. 입금·진행·강조 타일·링크 (흰 글자 5.5:1) */
+  --ian-blue-300:   #7c9be6;   /* 밝은 블루. 완료 단계·보조 면 (어두운 글자 6.3:1) */
+  --ian-bright:     #3366ff;   /* 밝은 파랑. 활성·하이라이트·큰 포인트 면 (흰 글자 4.7:1) */
+  --ian-peri:       #6f8dff;   /* 페리윙클. 사람·진행·장식 (어두운 글자 5.6:1) */
+  --ian-sun:        #ffc83d;   /* 해바라기 노랑. 포인트 1 (위에는 항상 어두운 글자) */
+  --ian-mint:       #2ed3a0;   /* 민트. 포인트 2 · 정상/완료 (위에는 어두운 글자) */
+  --ian-violet:     #a584ff;   /* 라벤더. 포인트 4 */
+  --ian-mint-bg:    #d6f6ea;
+  --ian-mint-fg:    #0b6b4f;   /* 민트 배경 위 글자 */
+  --ian-on-accent:  #0f1a3a;   /* 노랑·민트 면 위 글자 (다크에서도 동일) */
+  --ian-brand-200:  #b3c4ea;
+  --ian-brand-100:  #d9e2f6;
+  --ian-brand-50:   #eef2fb;
+  --ian-dock-on-bg: var(--ian-bright);   /* 하단 독 현재 탭 */
+  --ian-dock-on-fg: #ffffff;
+
+  /* ---- Neutral: 블루 기운이 도는 잉크와 회색 ------------------------------ */
+  --ian-ink:      #0f1a3a;     /* 본문·가장 어두운 면 */
+  --ian-ink-rgb:  15 26 58;    /* 투명도 조합용 (ink와 같은 값) */
+  --ian-ink-2:    #3a4670;
+  --ian-ink-3:    #5f6a8c;     /* 캡션 (흰 배경 5.3:1) */
+  --ian-inverse:  #0f1a3a;     /* 독·어두운 타일·진한 버튼의 면 (다크에서는 한 단계 밝은 남색) */
+  --ian-on-inverse: #ffffff;
+  --ian-bg:       #f3f5fa;     /* 앱 배경 */
+  --ian-surface:  #ffffff;
+  --ian-fill:     #e7ebf5;     /* 입력·세그먼트 바탕 */
+  --ian-line:     #d8deec;
+  --ian-disabled-fg: #8e98b6;
+
+  /* ---- Semantic: 오류·거래중지만 별도 색 ---------------------------------- */
+  --ian-danger:     #d12f2f;   /* 오류·분실·해지 */
+  --ian-danger-bg:  #fdecec;
+  --ian-warning:    #9a5b00;   /* 거래중지·정지·처리중 */
+  --ian-warning-bg: #fff3d6;
+  --ian-danger-solid: #d12f2f; /* 흰 글자를 올리는 빨강 면 */
+
+  /* 금액: 입금 = 중간 블루 "+", 출금 = 잉크 "−". 빨강은 오류 전용 */
+  --ian-money-in:  var(--ian-blue-500);
+  --ian-money-out: var(--ian-ink);
+
+  /* ---- Type -------------------------------------------------------------- */
+  --ian-font:     "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --ian-font-num: "Sora", "Pretendard Variable", system-ui, sans-serif;   /* 금액·숫자 */
+
+  --ian-fs-hero:   3rem;       /* 48 큰 금액 */
+  --ian-fs-amount: 2rem;       /* 32 */
+  --ian-fs-title1: 1.75rem;    /* 28 */
+  --ian-fs-title2: 1.1875rem;  /* 19 */
+  --ian-fs-body:   1rem;       /* 16 */
+  --ian-fs-caption:0.8125rem;  /* 13 */
+  --ian-fs-micro:  0.75rem;    /* 12 최소 */
+
+  --ian-fw-medium: 500; --ian-fw-semibold: 600; --ian-fw-bold: 700; --ian-fw-black: 800;
+  --ian-ls-tight: -0.035em;    /* 큰 글자 */
+  --ian-ls-head:  -0.02em;
+  --ian-lh-body:  1.55;
+
+  /* ---- Space (4px base) -------------------------------------------------- */
+  --ian-s-1: 4px;  --ian-s-2: 8px;  --ian-s-3: 12px; --ian-s-4: 16px;
+  --ian-s-5: 20px; --ian-s-6: 24px; --ian-s-8: 32px; --ian-s-10: 40px;
+  --ian-gutter: 20px;
+  --ian-tap: 48px;
+
+  /* ---- Shape: 컨트롤은 알약, 면(타일)은 크게 둥글게 ------------------------ */
+  --ian-r-input: 16px;
+  --ian-r-tile:  24px;
+  --ian-r-sheet: 32px 32px 0 0;
+  --ian-r-pill:  999px;
+
+  /* ---- Elevation: 평면이 기본. 겹치는 레이어에만 그림자 ---------------------- */
+  --ian-shadow-rgb: 15 26 58;
+  --ian-sheet-bg: var(--ian-bg);
+  --ian-shadow-sheet: 0 -12px 40px rgb(var(--ian-shadow-rgb) / 0.18);
+  --ian-shadow-dock:  0 8px 24px rgb(var(--ian-shadow-rgb) / 0.22);
+
+  --ian-focus: 0 0 0 3px var(--ian-surface), 0 0 0 6px var(--ian-ink);
+
+  /* ---- Motion ------------------------------------------------------------ */
+  --ian-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ian-dur-1: 140ms; --ian-dur-2: 260ms;
+
+  --ian-z-bar: 10; --ian-z-sheet: 40; --ian-z-toast: 60;
+}
+
+@media (prefers-reduced-motion: reduce) { :root { --ian-dur-1: 0ms; --ian-dur-2: 0ms; } }
+
+/* ==========================================================================
+   다크 모드
+   - 기기 설정을 따른다(prefers-color-scheme).
+   - 직접 고르려면 <html data-color-scheme="dark|light"> (기기 설정보다 우선).
+   - 글자와 면의 짝: 어두운 바탕 위 글자는 --ian-ink(밝은색), 독·진한 버튼 같은
+     "반전 면"은 --ian-inverse + --ian-on-inverse를 쓴다.
+   ========================================================================== */
+:root[data-color-scheme="dark"] {
+  color-scheme: dark;
+  --ian-brand: #3366ff; --ian-brand-deep: #9db4ff; --ian-on-brand: #ffffff; --ian-on-brand-rgb: 255 255 255;
+  --ian-blue-500: #8fa9ff; --ian-blue-300: #6f8dff; --ian-bright: #3366ff; --ian-peri: #7c97ff;
+  --ian-brand-50: #121c44; --ian-brand-100: #213475; --ian-brand-200: #2c418f;
+  --ian-dock-on-bg: var(--ian-bright); --ian-dock-on-fg: #ffffff;
+  --ian-ink: #eef1fa; --ian-ink-rgb: 238 241 250; --ian-ink-2: #b8c1de; --ian-ink-3: #8e99bd;
+  --ian-inverse: #1e2a55; --ian-on-inverse: #ffffff;
+  --ian-bg: #0a1128; --ian-surface: #121b3a; --ian-fill: #1b2650; --ian-line: #2a3563; --ian-disabled-fg: #5f6b95;
+  --ian-danger: #ff6b6b; --ian-danger-bg: #3a1620; --ian-danger-solid: #d63b3b;
+  --ian-warning: #f2b54a; --ian-warning-bg: #3a2b0a;
+  --ian-shadow-rgb: 0 0 0; --ian-sheet-bg: #0f1733;
+  --ian-seg-on-bg: #3366ff; --ian-seg-on-fg: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-color-scheme="light"]) {
+    color-scheme: dark;
+    --ian-brand: #3366ff; --ian-brand-deep: #9db4ff; --ian-on-brand: #ffffff; --ian-on-brand-rgb: 255 255 255;
+    --ian-blue-500: #8fa9ff; --ian-blue-300: #6f8dff; --ian-bright: #3366ff; --ian-peri: #7c97ff;
+    --ian-brand-50: #121c44; --ian-brand-100: #213475; --ian-brand-200: #2c418f;
+    --ian-dock-on-bg: var(--ian-bright); --ian-dock-on-fg: #ffffff;
+      --ian-ink: #eef1fa; --ian-ink-rgb: 238 241 250; --ian-ink-2: #b8c1de; --ian-ink-3: #8e99bd;
+    --ian-inverse: #1e2a55; --ian-on-inverse: #ffffff;
+    --ian-bg: #0a1128; --ian-surface: #121b3a; --ian-fill: #1b2650; --ian-line: #2a3563; --ian-disabled-fg: #5f6b95;
+    --ian-danger: #ff6b6b; --ian-danger-bg: #3a1620; --ian-danger-solid: #d63b3b;
+    --ian-warning: #f2b54a; --ian-warning-bg: #3a2b0a;
+    --ian-shadow-rgb: 0 0 0; --ian-sheet-bg: #0f1733;
+  --ian-seg-on-bg: #3366ff; --ian-seg-on-fg: #ffffff;
+  }
+}

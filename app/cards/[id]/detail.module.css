@@ -1,0 +1,11 @@
+.static { cursor: default; }
+.danger { color: var(--ian-danger); }
+.hl { box-shadow: inset 0 0 0 2px var(--ian-bright); background: var(--ian-brand-50); }
+.pay { cursor: default; }
+.pay:active { background: none; }
+.actions { display: grid; gap: var(--ian-s-2); }
+.limitWrap { position: relative; }
+.won { position: absolute; right: var(--ian-s-5); top: 50%; transform: translateY(-50%); font-weight: 700; pointer-events: none; }
+.limitInput { padding-right: 48px; text-align: right; font-family: var(--ian-font-num); }
+.sheetTitle { margin: 0; }
+.live { min-height: 0; }

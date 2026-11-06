@@ -1,0 +1,7 @@
+.brand { display: grid; justify-items: center; gap: var(--ian-s-2); padding: var(--ian-s-10, 48px) 0 var(--ian-s-4); text-align: center; }
+.mark { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 22px; background: var(--ian-brand); color: var(--ian-on-brand); font-size: 1.75rem; font-weight: 800; }
+.name { font-size: 1.75rem; font-weight: 800; letter-spacing: -0.02em; color: var(--ian-brand-deep); margin: 0; }
+.links { display: flex; justify-content: center; align-items: center; gap: var(--ian-s-4); flex-wrap: wrap; }
+.links a, .links button { min-height: 48px; display: inline-flex; align-items: center; padding: 0 var(--ian-s-2); background: none; border: 0; cursor: pointer; font-size: var(--ian-fs-caption); font-weight: 700; color: var(--ian-ink-2); }
+.sep { width: 1px; height: 14px; background: var(--ian-ink-3); opacity: 0.4; }
+.pin { display: grid; gap: var(--ian-s-4); justify-items: center; padding-top: var(--ian-s-2); }

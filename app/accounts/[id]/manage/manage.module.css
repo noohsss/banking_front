@@ -1,0 +1,4 @@
+.section { display: grid; gap: var(--ian-s-4); padding: var(--ian-s-5); background: var(--ian-surface); border-radius: var(--ian-r-tile); }
+.switchRow { display: flex; align-items: center; justify-content: space-between; gap: var(--ian-s-4); min-height: var(--ian-tap); }
+.num { font-family: var(--ian-font-num); font-variant-numeric: tabular-nums; }
+.code { letter-spacing: 0.4em; font-family: var(--ian-font-num); text-align: center; }

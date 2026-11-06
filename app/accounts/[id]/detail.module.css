@@ -1,0 +1,9 @@
+.chips { display: flex; flex-wrap: wrap; gap: var(--ian-s-2); }
+.dates { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ian-s-3); }
+.filters { display: grid; gap: var(--ian-s-3); }
+.panel { display: grid; gap: var(--ian-s-3); padding: var(--ian-s-4); background: var(--ian-surface); border-radius: var(--ian-r-tile); }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--ian-s-3); }
+.skel { height: 64px; }
+.reqRow { display: flex; align-items: center; justify-content: space-between; gap: var(--ian-s-3); padding: var(--ian-s-3) var(--ian-s-4); background: var(--ian-surface); border-radius: var(--ian-r-input); }
+.count { display: flex; justify-content: space-between; align-items: center; }
+.meta { display: flex; flex-wrap: wrap; gap: var(--ian-s-2) var(--ian-s-3); align-items: center; }

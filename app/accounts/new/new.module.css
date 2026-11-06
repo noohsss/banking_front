@@ -1,0 +1,7 @@
+.chips { display: flex; flex-wrap: wrap; gap: var(--ian-s-2); }
+.fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: var(--ian-s-2); min-width: 0; }
+.legend { padding: 0; font-size: var(--ian-fs-caption); font-weight: var(--ian-fw-bold); color: var(--ian-ink-2); margin-bottom: var(--ian-s-2); }
+.termBox { background: var(--ian-surface); border-radius: var(--ian-r-tile); padding: var(--ian-s-2) var(--ian-s-5); }
+.termAll { border-bottom: 2px solid var(--ian-line); }
+.pwInput { letter-spacing: 0.5em; font-family: var(--ian-font-num); }
+.rate { display: flex; align-items: baseline; gap: var(--ian-s-2); }

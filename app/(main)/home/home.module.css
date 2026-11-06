@@ -1,0 +1,10 @@
+.greet { font-weight: var(--ian-fw-black); font-size: var(--ian-fs-title2); letter-spacing: var(--ian-ls-head); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: var(--ian-s-3); }
+.alias { display: inline-flex; align-items: center; gap: 6px; font-weight: var(--ian-fw-bold); }
+.heroTile { min-height: 196px; }
+.listTile { min-height: 0; }
+.skelHero { height: 196px; border-radius: var(--ian-r-tile); }
+.skelTile { height: 132px; border-radius: var(--ian-r-tile); }
+.skelRow { height: 88px; border-radius: var(--ian-r-tile); }
+.tileLink { text-decoration: none; }
+.dim { opacity: 0.6; }
