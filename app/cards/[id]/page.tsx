@@ -5,6 +5,10 @@ import { AppBar } from "@/components/AppBar";
 import { PinPad } from "@/components/PinPad";
 import { Sheet } from "@/components/Sheet";
 import { useStore } from "@/lib/store";
+import { useAccounts } from "@/lib/services/useAccounts";
+import { useCard } from "@/lib/services/useCard";
+import { IS_LIVE } from "@/lib/api/mode";
+import { errorMessage } from "@/lib/api/errors";
 import { fmtDate, fmtDay, fmtTime, dayKey, won, wonUnit } from "@/lib/format";
 import { CardVisual } from "@/app/(main)/cards/CardVisual";
 import s from "./detail.module.css";
@@ -23,8 +27,9 @@ const limitError = (text: string): string | null => {
 /** SCR-011 카드 상세·관리 (이 Next.js 버전에서 params는 Promise라서 use()로 푼다) */
 export default function CardDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { cards, accounts, payments, checkPin, patchCard, reissueCard } = useStore();
-  const card = cards.find((c) => c.id === id);
+  const { checkPin } = useStore();
+  const { accounts } = useAccounts();
+  const { card, payments: myPays, alerts, loading, error, refresh, hasMorePayments, loadMorePayments, canResume, update, suspend, resume, reportLost, reissue, markAlertRead } = useCard(id);
   const alias = accounts.find((a) => a.id === card?.accountId)?.alias ?? "연결 계좌";
 
   const [sheet, setSheet] = useState<Kind | null>(null);
@@ -32,12 +37,37 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
   const [limitText, setLimitText] = useState("");
   const [limitErr, setLimitErr] = useState<string | null>(null);
   const [pinError, setPinError] = useState(false);
-  const [notice, setNotice] = useState<{ text: string; href?: string; link?: string } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; href?: string; link?: string; danger?: boolean } | null>(null);
+  const [moreBusy, setMoreBusy] = useState(false);
   const [hl, setHl] = useState<string | null>(null);
   const busy = useRef(false);
 
   // 시트는 앱 셸 맨 아래에 붙으므로 열릴 때 화면 아래로 내려서 보이게 한다
   useEffect(() => { if (sheet) window.scrollTo({ top: document.documentElement.scrollHeight }); }, [sheet, step]);
+
+  if (loading && !card) {
+    return (
+      <div className="ian-screen">
+        <AppBar title="카드 상세" />
+        <div className="ian-screen__body"><p className="ian-t-caption" role="status">카드를 불러오고 있어요</p></div>
+      </div>
+    );
+  }
+
+  if (error && !card) {
+    return (
+      <div className="ian-screen">
+        <AppBar title="카드 상세" />
+        <div className="ian-screen__body">
+          <div className="ian-empty" role="alert">
+            <b className="ian-t-title2">카드를 불러오지 못했어요</b>
+            <span className="ian-t-caption">{error}</span>
+            <button className="ian-btn ian-btn--primary ian-btn--sm" onClick={() => void refresh()}>다시 시도</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!card) {
     return (
@@ -55,37 +85,42 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   const st = card.status;
-  const canEdit = st === "ACTIVE" || st === "SUSPENDED";
-  const canLost = canEdit;
+  // 명세: 설정 변경은 ACTIVE 카드만(mock은 기존대로 정지 카드도 허용)
+  const canEdit = st === "ACTIVE" || (!IS_LIVE && st === "SUSPENDED");
+  const canLost = st === "ACTIVE" || st === "SUSPENDED";
   const canReissue = st === "ACTIVE" || st === "SUSPENDED" || st === "LOST";
-  const myPays = payments.filter((p) => p.cardId === card.id).sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
-  const recent = myPays.slice(0, 3);
   const days = [...new Set(myPays.map((p) => dayKey(p.requestedAt)))];
 
   const open = (k: Kind) => { setSheet(k); setStep("form"); setPinError(false); setLimitErr(null); setLimitText(String(card.dailyLimit)); };
   const close = () => setSheet(null);
 
-  const finish = (kind: Kind) => {
+  const finish = async (kind: Kind) => {
     if (busy.current) return; busy.current = true;
-    if (kind === "limit") { patchCard(card.id, { dailyLimit: Number(limitText) }); setNotice({ text: `일일 사용한도를 ${wonUnit(Number(limitText))}으로 바꿨어요.` }); }
-    if (kind === "lost") { patchCard(card.id, { status: "LOST" }); setNotice({ text: "분실 신고를 접수했어요. 이 카드는 더 이상 쓸 수 없어요." }); }
-    if (kind === "suspend") { patchCard(card.id, { status: "SUSPENDED" }); setNotice({ text: "카드를 정지했어요. 정지를 풀 때까지 결제할 수 없어요." }); }
-    if (kind === "resume") { patchCard(card.id, { status: "ACTIVE" }); setNotice({ text: "정지를 풀었어요. 다시 결제할 수 있어요." }); }
-    if (kind === "reissue") { const nc = reissueCard(card.id); setNotice({ text: "새 카드를 발급했어요. 이 카드는 재발급됨으로 바뀌었어요.", href: `/cards/${nc.id}`, link: "새 카드 보기" }); }
-    close(); busy.current = false;
+    try {
+      if (kind === "limit") { await update({ dailyLimit: Number(limitText) }); setNotice({ text: `일일 사용한도를 ${wonUnit(Number(limitText))}으로 바꿨어요.` }); }
+      if (kind === "lost") { await reportLost(); setNotice({ text: "분실 신고를 접수했어요. 이 카드는 더 이상 쓸 수 없어요." }); }
+      if (kind === "suspend") { await suspend(); setNotice({ text: IS_LIVE ? "카드를 정지했어요. 정지 중에는 결제할 수 없어요." : "카드를 정지했어요. 정지를 풀 때까지 결제할 수 없어요." }); }
+      if (kind === "resume") { await resume(); setNotice({ text: "정지를 풀었어요. 다시 결제할 수 있어요." }); }
+      if (kind === "reissue") { const nc = await reissue(); setNotice({ text: "새 카드를 발급했어요. 이 카드는 재발급됨으로 바뀌었어요.", href: `/cards/${nc.id}`, link: "새 카드 보기" }); }
+    } catch (e) {
+      setNotice({ text: errorMessage(e), danger: true });
+    } finally { close(); busy.current = false; }
   };
 
   const onPin = (pin: string) => {
     if (!sheet) return;
     if (!checkPin(pin)) { setPinError(true); setTimeout(() => setPinError(false), 700); return; }
-    finish(sheet);
+    void finish(sheet);
   };
 
-  const nextLimit = () => { const e = limitError(limitText); setLimitErr(e); if (!e) setStep("pin"); };
+  // live 명세에는 한도 변경·분실 신고에 PIN 필드가 없어서 PIN 단계를 거치지 않는다
+  const afterForm = (k: "limit" | "lost") => (IS_LIVE ? void finish(k) : setStep("pin"));
+
+  const nextLimit = () => { const e = limitError(limitText); setLimitErr(e); if (!e) afterForm("limit"); };
   const showPay = (pid: string) => { setHl(pid); document.getElementById(`pay-${pid}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); };
 
   const noticeBox = {
-    SUSPENDED: <div className="ian-notice ian-notice--warn"><div><b className="ian-notice__title">정지된 카드예요</b>정지를 풀기 전에는 결제할 수 없어요. 한도와 해외결제는 바꿀 수 있어요.</div></div>,
+    SUSPENDED: <div className="ian-notice ian-notice--warn"><div><b className="ian-notice__title">정지된 카드예요</b>{IS_LIVE ? "정지 중에는 결제할 수 없어요. 정지 해제는 아직 앱에서 지원하지 않아요." : "정지를 풀기 전에는 결제할 수 없어요. 한도와 해외결제는 바꿀 수 있어요."}</div></div>,
     LOST: <div className="ian-notice ian-notice--danger"><div><b className="ian-notice__title">분실 신고된 카드예요</b>결제와 설정 변경이 모두 막혀 있어요. 새 카드가 필요하면 재발급을 신청해 주세요.</div></div>,
     REISSUED: <div className="ian-notice"><div><b className="ian-notice__title">재발급되어 쓸 수 없는 카드예요</b>설정을 바꿀 수 없어요. 새 카드를 사용해 주세요.{card.replacedBy && <> <Link href={`/cards/${card.replacedBy}`} className="ian-link">새 카드 보기</Link></>}</div></div>,
     CLOSED: <div className="ian-notice"><div><b className="ian-notice__title">해지된 카드예요</b>설정을 바꿀 수 없어요. 사용내역은 계속 볼 수 있어요.</div></div>,
@@ -99,7 +134,7 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
         <CardVisual card={card} alias={alias} />
 
         <div className={s.live} role="status" aria-live="polite">
-          {notice && <div className="ian-notice"><div>{notice.text}{notice.href && <> <Link href={notice.href} className="ian-link">{notice.link}</Link></>}</div></div>}
+          {notice && <div className={`ian-notice${notice.danger ? " ian-notice--danger" : ""}`}><div>{notice.text}{notice.href && <> <Link href={notice.href} className="ian-link">{notice.link}</Link></>}</div></div>}
         </div>
         {noticeBox}
 
@@ -118,7 +153,7 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
                 <span className="ian-menu__main">해외결제<span className="ian-menu__sub" id="ov-sub">{card.overseas ? "켜짐 · 해외 가맹점에서 결제돼요" : "꺼짐 · 해외 가맹점 결제가 막혀 있어요"}</span></span>
                 <span className="ian-switch">
                   <input type="checkbox" role="switch" aria-label="해외결제" aria-describedby="ov-sub" checked={card.overseas}
-                    onChange={(e) => { patchCard(card.id, { overseas: e.target.checked }); setNotice({ text: e.target.checked ? "해외결제를 켰어요." : "해외결제를 껐어요." }); }} />
+                    onChange={(e) => { const on = e.target.checked; update({ overseas: on }).then(() => setNotice({ text: on ? "해외결제를 켰어요." : "해외결제를 껐어요." }), (er) => setNotice({ text: errorMessage(er), danger: true })); }} />
                   <span className="ian-switch__track" /><span className="ian-switch__thumb" />
                 </span>
               </label>
@@ -128,12 +163,12 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
           </div>
         </section>
 
-        {(canEdit || canReissue) && (
+        {(st === "ACTIVE" || (st === "SUSPENDED" && canResume) || canLost || canReissue) && (
           <section aria-labelledby="act-h">
             <div className="ian-section-head"><h2 id="act-h" className="ian-t-title2">카드 관리</h2></div>
             <div className={s.actions}>
               {st === "ACTIVE" && <button className="ian-btn ian-btn--soft ian-btn--block" onClick={() => open("suspend")}>카드 정지</button>}
-              {st === "SUSPENDED" && <button className="ian-btn ian-btn--primary ian-btn--block" onClick={() => open("resume")}>정지 해제</button>}
+              {st === "SUSPENDED" && canResume && <button className="ian-btn ian-btn--primary ian-btn--block" onClick={() => open("resume")}>정지 해제</button>}
               {canReissue && <button className="ian-btn ian-btn--soft ian-btn--block" onClick={() => open("reissue")}>재발급 신청</button>}
               {canLost && <button className="ian-btn ian-btn--danger-soft ian-btn--block" onClick={() => open("lost")}>분실 신고</button>}
             </div>
@@ -142,15 +177,15 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
 
         <section aria-labelledby="al-h">
           <div className="ian-section-head"><h2 id="al-h" className="ian-t-title2">결제 알림</h2><span className="ian-t-caption">최근 3건</span></div>
-          {recent.length === 0 ? (
+          {alerts.length === 0 ? (
             <div className="ian-empty"><b>새 결제 알림이 없어요</b><span className="ian-t-caption">카드를 쓰면 여기에 알려 드려요.</span></div>
           ) : (
             <div className="ian-menu">
-              {recent.map((p) => (
-                <button key={p.id} className="ian-menu__item" data-chev onClick={() => showPay(p.id)}>
+              {alerts.map((a) => (
+                <button key={a.id} className="ian-menu__item" data-chev onClick={() => (a.payId ? showPay(a.payId) : void markAlertRead(a.id).catch((er) => setNotice({ text: errorMessage(er), danger: true })))}>
                   <span className="ian-menu__main">
-                    {p.completedAt ? `${p.merchant}에서 ${wonUnit(p.amount)} 결제했어요` : `${p.merchant} ${wonUnit(p.amount)} 결제를 처리하고 있어요`}
-                    <span className="ian-menu__sub ian-num">{fmtDate(p.requestedAt)} {fmtTime(p.requestedAt)}</span>
+                    {a.unread && <span className="ian-badge ian-badge--warn">새 알림</span>} {a.text}
+                    <span className="ian-menu__sub ian-num">{fmtDate(a.at)} {fmtTime(a.at)}</span>
                   </span>
                 </button>
               ))}
@@ -183,6 +218,7 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
               ))}
             </div>
           )}
+          {hasMorePayments && <button className="ian-btn ian-btn--soft ian-btn--block" disabled={moreBusy} onClick={() => { setMoreBusy(true); loadMorePayments().catch((er) => setNotice({ text: errorMessage(er), danger: true })).finally(() => setMoreBusy(false)); }}>{moreBusy ? "불러오고 있어요" : "사용내역 더 보기"}</button>}
         </section>
       </div>
 
@@ -201,14 +237,14 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
               </div>
               {limitErr ? <span id="new-limit-err" className="ian-field__error" role="alert">{limitErr}</span> : <span id="new-limit-hint" className="ian-field__hint">지금은 {wonUnit(card.dailyLimit)}이에요. 최대 1,000,000원까지 정할 수 있어요.</span>}
             </div>
-            <button className="ian-btn ian-btn--primary ian-btn--block" onClick={nextLimit}>PIN으로 확인하기</button>
+            <button className="ian-btn ian-btn--primary ian-btn--block" onClick={nextLimit}>{IS_LIVE ? "한도 변경하기" : "PIN으로 확인하기"}</button>
           </>
         )}
         {sheet === "lost" && step === "form" && (
           <>
             <h2 className={`ian-t-title2 ${s.sheetTitle}`}>끝 4자리 {card.last4} 카드를 분실 신고할까요?</h2>
             <div className="ian-notice ian-notice--danger"><div><b className="ian-notice__title">신고하면 되돌릴 수 없어요</b>이 카드는 바로 결제가 막히고 다시 쓸 수 없어요. 새 카드는 재발급으로 받을 수 있어요.</div></div>
-            <button className="ian-btn ian-btn--danger ian-btn--block" onClick={() => setStep("pin")}>분실 신고하기</button>
+            <button className="ian-btn ian-btn--danger ian-btn--block" onClick={() => afterForm("lost")}>분실 신고하기</button>
             <button className="ian-btn ian-btn--soft ian-btn--block" onClick={close}>취소</button>
           </>
         )}
@@ -216,11 +252,11 @@ export default function CardDetailPage({ params }: { params: Promise<{ id: strin
           <>
             <h2 className={`ian-t-title2 ${s.sheetTitle}`}>{sheet === "suspend" ? "카드를 정지할까요?" : sheet === "resume" ? "정지를 풀까요?" : "새 카드를 재발급할까요?"}</h2>
             <p className="ian-t-caption">
-              {sheet === "suspend" && "정지하는 동안 결제할 수 없어요. 언제든지 정지를 풀 수 있어요."}
+              {sheet === "suspend" && `정지하는 동안 결제할 수 없어요.${IS_LIVE ? "" : " 언제든지 정지를 풀 수 있어요."}`}
               {sheet === "resume" && "풀면 바로 다시 결제할 수 있어요."}
-              {sheet === "reissue" && "새 카드번호가 만들어지고 지금 카드는 재발급됨으로 바뀌어 더 이상 쓸 수 없어요. 한도와 해외결제 설정은 그대로 이어져요."}
+              {sheet === "reissue" && `새 카드번호가 만들어지고 지금 카드는 재발급됨으로 바뀌어 더 이상 쓸 수 없어요.${IS_LIVE ? "" : " 한도와 해외결제 설정은 그대로 이어져요."}`}
             </p>
-            <button className="ian-btn ian-btn--primary ian-btn--block" onClick={() => finish(sheet)}>{sheet === "suspend" ? "카드 정지하기" : sheet === "resume" ? "정지 해제하기" : "재발급 신청하기"}</button>
+            <button className="ian-btn ian-btn--primary ian-btn--block" onClick={() => void finish(sheet)}>{sheet === "suspend" ? "카드 정지하기" : sheet === "resume" ? "정지 해제하기" : "재발급 신청하기"}</button>
             <button className="ian-btn ian-btn--soft ian-btn--block" onClick={close}>취소</button>
           </>
         )}

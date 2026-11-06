@@ -4,7 +4,9 @@ import { useRef, useState } from "react";
 import { AppBar } from "@/components/AppBar";
 import { Stepper } from "@/components/Stepper";
 import { Sheet } from "@/components/Sheet";
-import { useStore } from "@/lib/store";
+import { IS_LIVE } from "@/lib/api/mode";
+import { errorMessage } from "@/lib/api/errors";
+import { useOpenAccount } from "@/lib/services/useOpenAccount";
 import { wonUnit } from "@/lib/format";
 import type { Account } from "@/lib/types";
 import { Frame, SheetBody, useToast } from "../_components/Frame";
@@ -14,18 +16,12 @@ import css from "./new.module.css";
 const STEPS = ["상품 안내", "약관 동의", "통장 비밀번호", "목적·거래정보"];
 const PURPOSES = ["급여·생활비", "저축·모으기", "용돈·소액 거래", "사업·부수입", "기타"];
 const SOURCES = ["근로소득", "사업소득", "용돈·가족 지원", "기타"];
-const TERMS = [
-  { id: "t1", req: true, label: "IAN 입출금통장 이용약관" },
-  { id: "t2", req: true, label: "상품설명서 확인 (금리·수수료·예금자보호 안내)" },
-  { id: "t3", req: true, label: "개인정보 수집·이용 동의" },
-  { id: "t4", req: false, label: "혜택·이벤트 알림 수신 동의" },
-] as const;
 const DEFAULT_DAILY = 1_000_000;
 const DEFAULT_MONTHLY = 5_000_000;
 const digits = (v: string) => v.replace(/\D/g, "").slice(0, 4);
 
 export default function NewAccountPage() {
-  const { openAccount } = useStore();
+  const { product, terms: TERMS, loading: infoLoading, error: infoError, retry, open } = useOpenAccount();
   const [step, setStep] = useState(0);
   const [agree, setAgree] = useState<Record<string, boolean>>({});
   const [pw, setPw] = useState("");
@@ -37,6 +33,7 @@ export default function NewAccountPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [failMsg, setFailMsg] = useState("");
   const [created, setCreated] = useState<Account | null>(null);
   const lock = useRef(false);
   const { toast, showToast } = useToast();
@@ -49,26 +46,26 @@ export default function NewAccountPage() {
 
   const back = () => { setTried(false); if (step === 0) history.back(); else setStep(step - 1); };
   const next = () => {
+    if (step === 0 && IS_LIVE && (infoLoading || !product || !TERMS.length)) return;   // 상품·약관을 받아야 진행
     if (step === 1 && !reqOk) { setTried(true); return; }
     if (step === 2 && (pwErr || pw2Err)) { setTried(true); return; }
     if (step === 3) { if (infoErr.purpose || infoErr.source) { setTried(true); return; } setFailed(false); setConfirmOpen(true); return; }
     setTried(false); setStep(step + 1);
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (lock.current) return;          // 중복 신청 차단
     lock.current = true; setBusy(true); setFailed(false);
-    setTimeout(() => {
-      try {
-        const acc = openAccount(alias.trim());
-        setPw(""); setPw2("");
-        setCreated(acc); setConfirmOpen(false);
-      } catch {
-        setFailed(true);
-      } finally {
-        lock.current = false; setBusy(false);
-      }
-    }, 800);
+    try {
+      const acc = await open({ alias: alias.trim(), password: pw, purpose, fundSource: source, agreed: agree });
+      setPw(""); setPw2("");
+      setCreated(acc); setConfirmOpen(false);
+    } catch (e) {
+      setFailMsg(IS_LIVE ? errorMessage(e) : "");
+      setFailed(true);
+    } finally {
+      lock.current = false; setBusy(false);
+    }
   };
 
   // ---- 완료 ----
@@ -116,15 +113,15 @@ export default function NewAccountPage() {
                   <div className="ian-receipt__row"><dt>개설 목적</dt><dd>{purpose}</dd></div>
                   <div className="ian-receipt__row"><dt>자금 출처</dt><dd>{source}</dd></div>
                   <div className="ian-receipt__row"><dt>통장 비밀번호</dt><dd>••••</dd></div>
-                  <div className="ian-receipt__row"><dt>기본 한도</dt><dd className="ian-num">일 {wonUnit(DEFAULT_DAILY)} · 월 {wonUnit(DEFAULT_MONTHLY)}</dd></div>
+                  {!IS_LIVE && <div className="ian-receipt__row"><dt>기본 한도</dt><dd className="ian-num">일 {wonUnit(DEFAULT_DAILY)} · 월 {wonUnit(DEFAULT_MONTHLY)}</dd></div>}
                 </dl>
               </div>
               {failed && (
-                <div className="ian-notice ian-notice--danger" role="alert"><div><b className="ian-notice__title">계좌를 열지 못했어요</b>일시적인 문제예요. 입력한 내용은 그대로 있으니 다시 시도해 주세요.</div></div>
+                <div className="ian-notice ian-notice--danger" role="alert"><div><b className="ian-notice__title">계좌를 열지 못했어요</b>{failMsg || "일시적인 문제예요."} 입력한 내용은 그대로 있으니 다시 시도해 주세요.</div></div>
               )}
               <div className="ian-row">
                 <button type="button" className="ian-btn ian-btn--outline" style={{ flex: 1 }} onClick={() => setConfirmOpen(false)} disabled={busy}>수정하기</button>
-                <button type="button" className="ian-btn ian-btn--primary" style={{ flex: 2 }} onClick={submit} aria-busy={busy} disabled={busy}>{busy ? "여는 중이에요" : failed ? "다시 시도" : "계좌 개설하기"}</button>
+                <button type="button" className="ian-btn ian-btn--primary" style={{ flex: 2 }} onClick={() => void submit()} aria-busy={busy} disabled={busy}>{busy ? "여는 중이에요" : failed ? "다시 시도" : "계좌 개설하기"}</button>
               </div>
             </SheetBody>
           </Sheet>
@@ -141,14 +138,23 @@ export default function NewAccountPage() {
           <>
             <h1 className="ian-t-title1">수수료 없는<br />입출금통장을 열어요</h1>
             <div className="ian-tile ian-tile--tint" style={{ minHeight: 0 }}>
-              <b className="ian-t-title2">IAN 입출금통장</b>
-              <div className={css.rate}><span className="ian-t-caption">연 금리</span><span className="ian-t-amount">0.1<span className="ian-unit">%</span></span></div>
-              <p className="ian-tile__sub">월급 받기, 생활비 쓰기, 이체와 체크카드 연결까지 한 통장으로 쓸 수 있어요. 가입 조건 없이 누구나 열 수 있어요.</p>
+              <b className="ian-t-title2">{product?.name ?? "IAN 입출금통장"}</b>
+              <div className={css.rate}><span className="ian-t-caption">연 금리</span><span className="ian-t-amount">{product ? product.rate : "-"}<span className="ian-unit">%</span></span></div>
+              <p className="ian-tile__sub">{(IS_LIVE && product?.description) || "월급 받기, 생활비 쓰기, 이체와 체크카드 연결까지 한 통장으로 쓸 수 있어요. 가입 조건 없이 누구나 열 수 있어요."}</p>
             </div>
-            <ul className="ian-t-caption" style={{ margin: 0, paddingLeft: 20, display: "grid", gap: 4 }}>
-              <li>개설 즉시 1일 100만원, 1달 500만원까지 이체할 수 있어요.</li>
-              <li>한도는 개설 뒤 계좌 관리에서 바꿀 수 있어요.</li>
-            </ul>
+            {!IS_LIVE && (
+              <ul className="ian-t-caption" style={{ margin: 0, paddingLeft: 20, display: "grid", gap: 4 }}>
+                <li>개설 즉시 1일 100만원, 1달 500만원까지 이체할 수 있어요.</li>
+                <li>한도는 개설 뒤 계좌 관리에서 바꿀 수 있어요.</li>
+              </ul>
+            )}
+            {infoError && (
+              <div className="ian-notice ian-notice--danger" role="alert">
+                <div><b className="ian-notice__title">상품 정보를 불러오지 못했어요</b>{infoError}
+                  <div style={{ marginTop: "var(--ian-s-3)" }}><button type="button" className="ian-btn ian-btn--danger-soft ian-btn--sm" onClick={() => void retry()}>다시 불러오기</button></div>
+                </div>
+              </div>
+            )}
           </>
         )}
 
@@ -163,10 +169,11 @@ export default function NewAccountPage() {
               {TERMS.map((t) => (
                 <label key={t.id} className="ian-check">
                   <input type="checkbox" checked={!!agree[t.id]} onChange={(e) => setAgree({ ...agree, [t.id]: e.target.checked })} aria-describedby={tried && t.req && !agree[t.id] ? "terms-err" : undefined} />
-                  <span><span className={`ian-check__tag ${t.req ? "" : "ian-check__tag--opt"}`}>{t.req ? "필수" : "선택"}</span>{t.label}</span>
+                  <span><span className={`ian-check__tag ${t.req ? "" : "ian-check__tag--opt"}`}>{t.req ? "필수" : "선택"}</span>{t.label}{t.content && <details onClick={(e) => e.stopPropagation()}><summary className="ian-t-micro">내용 보기</summary><span className="ian-t-micro" style={{ whiteSpace: "pre-wrap" }}>{t.content}</span></details>}</span>
                 </label>
               ))}
             </div>
+            {infoError && <span className="ian-field__error" role="alert">약관을 불러오지 못했어요. 상품 안내에서 다시 불러와 주세요.</span>}
             {tried && !reqOk && <span id="terms-err" className="ian-field__error" role="alert">필수 약관에 모두 동의해야 계좌를 열 수 있어요.</span>}
           </>
         )}
@@ -210,7 +217,7 @@ export default function NewAccountPage() {
         )}
       </div>
       <div className="ian-screen__footer">
-        <button type="button" className="ian-btn ian-btn--primary ian-btn--block" onClick={next} aria-disabled={step === 1 && !reqOk ? true : undefined}>{stepCta}</button>
+        <button type="button" className="ian-btn ian-btn--primary ian-btn--block" onClick={next} aria-disabled={(step === 1 && !reqOk) || (step === 0 && IS_LIVE && (infoLoading || !product || !TERMS.length)) ? true : undefined}>{stepCta}</button>
         {step === 0 && <p className="ian-t-micro" style={{ textAlign: "center" }}>계좌번호는 개설 후에 발급돼요.</p>}
       </div>
     </Frame>

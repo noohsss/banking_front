@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { AppBar } from "@/components/AppBar";
 import { Stepper } from "@/components/Stepper";
-import { useStore } from "@/lib/store";
+import { useAccounts } from "@/lib/services/useAccounts";
+import { useIssueCard } from "@/lib/services/useCards";
+import { ApiError, errorMessage } from "@/lib/api/errors";
+import type { Card } from "@/lib/types";
 import { maskAccount, won, wonUnit } from "@/lib/format";
 import { CardVisual } from "@/app/(main)/cards/CardVisual";
 import s from "./new.module.css";
@@ -21,7 +24,8 @@ const limitError = (text: string): string | null => {
 };
 
 function IssueForm() {
-  const { accounts, cards, issueCard } = useStore();
+  const { accounts, loading, error, refresh } = useAccounts();
+  const issueCard = useIssueCard();
   const query = useSearchParams().get("account");
   const active = accounts.filter((a) => a.status === "ACTIVE");
 
@@ -32,7 +36,7 @@ function IssueForm() {
   const [overseas, setOverseas] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
-  const [resultId, setResultId] = useState<string | null>(null);
+  const [issued, setIssued] = useState<Card | null>(null);
   const busyRef = useRef(false);
 
   const accountId = picked ?? (query && active.some((a) => a.id === query) ? query : active.length === 1 ? active[0].id : null);
@@ -44,24 +48,27 @@ function IssueForm() {
     if (!e && account) setStep("confirm");
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (busyRef.current || !account) return;
     busyRef.current = true; setBusy(true); setSubmitErr(null);
-    setTimeout(() => {
+    try {
       const fresh = active.find((a) => a.id === account.id);
       if (!fresh) {
         setSubmitErr("연결하려는 계좌가 정상 상태가 아니에요. 다른 계좌를 선택해 주세요.");
         setStep("form"); setPicked(null);
       } else {
-        const c = issueCard(account.id, Number(limitText), overseas);
-        setResultId(c.id); setStep("done");
+        setIssued(await issueCard({ accountId: account.id, dailyLimit: Number(limitText), overseas }));
+        setStep("done");
       }
-      busyRef.current = false; setBusy(false);
-    }, 600);
+    } catch (e) {
+      setSubmitErr(errorMessage(e));
+      if (e instanceof ApiError && e.is("ACCOUNT_STATE_NOT_ALLOWED")) { setStep("form"); setPicked(null); void refresh(); }
+    } finally { busyRef.current = false; setBusy(false); }
   };
 
   if (step === "done") {
-    const card = cards.find((c) => c.id === resultId);
+    const card = issued;
+    const resultId = issued?.id;
     return (
       <div className="ian-screen">
         <AppBar title="체크카드 발급" hideBack />
@@ -76,6 +83,23 @@ function IssueForm() {
         <div className="ian-screen__footer">
           <Link href={`/cards/${resultId}`} className="ian-btn ian-btn--primary ian-btn--block">카드 확인하기</Link>
           <Link href="/cards" className="ian-btn ian-btn--soft ian-btn--block">카드 목록 보기</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (loading || error) {
+    return (
+      <div className="ian-screen">
+        <AppBar title="체크카드 발급" />
+        <div className="ian-screen__body">
+          {loading ? <p className="ian-t-caption" role="status">계좌를 불러오고 있어요</p> : (
+            <div className="ian-empty" role="alert">
+              <b className="ian-t-title2">계좌를 불러오지 못했어요</b>
+              <span className="ian-t-caption">{error}</span>
+              <button className="ian-btn ian-btn--primary ian-btn--sm" onClick={() => void refresh()}>다시 시도</button>
+            </div>
+          )}
         </div>
       </div>
     );

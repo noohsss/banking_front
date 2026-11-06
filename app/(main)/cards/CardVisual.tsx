@@ -18,12 +18,12 @@ export function CardVisual({ card, alias }: { card: Card; alias: string }) {
       aria-label={`${card.name}, 끝 4자리 ${card.last4}, ${CARD_STATUS_LABEL[card.status]}, 연결 계좌 ${alias}`}
     >
       <div className="ian-row ian-row--between">
-        <b>IAN 체크</b>
+        <b>IAN 체크{card.network ? ` · ${card.network}` : ""}</b>
         <span className={`ian-badge ${s.tag} ${card.status === "LOST" ? s.tagLost : ""}`}>{CARD_STATUS_LABEL[card.status]}</span>
       </div>
       <div className="ian-card__num">•••• •••• •••• {card.last4}</div>
       <div className="ian-card__meta">
-        <span>{alias} 연결</span>
+        <span>{alias} 연결{card.expiry ? ` · 유효 ${card.expiry}` : ""}</span>
         <span className="ian-num">일 한도 {limitLabel(card.dailyLimit)}</span>
       </div>
     </div>
