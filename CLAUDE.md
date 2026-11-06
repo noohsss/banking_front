@@ -79,7 +79,7 @@ npm run api:types      # lib/api/openapi.yaml → lib/api/schema.d.ts 재생성
 
 ## 6. Git·커밋
 
-- **`main`에 직접 커밋하지 않는다.** `feat/…`, `fix/…`, `chore/…`, `docs/…` 브랜치를 만들어 작업하고 PR로 합친다. `main` 푸시 = production 자동 배포다.
+- **브랜치를 만들지 않고 `main`에 바로 커밋·푸시한다**(사용자 지시). 브랜치·PR은 사용자가 요청할 때만 만든다. `main` 푸시 = production 자동 배포이므로 푸시 전에 5절의 1~3을 반드시 통과시킨다.
 - 커밋은 논리 단위로 쪼갠다. 메시지는 Conventional Commits 형식, 한국어로: `type: 요약(명령형, 50자 안팎)` + 빈 줄 + 왜 바꿨는지. type은 `feat, fix, refactor, style, docs, chore, test, build`.
 - 커밋 전에 5절의 1~3을 통과시킨다. `.env*`, 토큰, 비밀값, `node_modules`, `.next`는 커밋하지 않는다(`.env.example`만 예외).
 - `git add -A` 전에 `git status`로 의도하지 않은 파일이 없는지 본다. 생성물 `lib/api/schema.d.ts`는 `openapi.yaml`과 같이 커밋한다.
