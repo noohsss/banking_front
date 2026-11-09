@@ -37,6 +37,7 @@ const FALLBACK: Record<string, string> = {
   DUPLICATE_EMAIL: "이미 가입된 이메일이에요.",
   DUPLICATE_PHONE: "이미 가입된 휴대폰 번호예요.",
   TOO_MANY_REQUESTS: "요청이 많아요. 잠시 후 다시 시도해 주세요.",
+  ASSISTANT_UNAVAILABLE: "도우미를 지금 쓸 수 없어요. 잠시 후 다시 시도해 주세요.",
   NOT_FOUND: "찾을 수 없어요.",
   VALIDATION_ERROR: "입력값을 다시 확인해 주세요.",
   NETWORK: "서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.",

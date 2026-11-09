@@ -1,0 +1,11 @@
+.list { display: flex; flex-direction: column; gap: var(--ian-s-3); }
+.row { display: flex; flex-direction: column; gap: var(--ian-s-2); max-width: 85%; }
+.mine { align-self: flex-end; align-items: flex-end; }
+.theirs { align-self: flex-start; align-items: flex-start; }
+.bubble { margin: 0; padding: var(--ian-s-3) var(--ian-s-4); border-radius: var(--ian-r-tile); white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; }
+.mine .bubble { background: var(--ian-brand); color: var(--ian-on-brand); }
+.theirs .bubble { background: var(--ian-surface); color: var(--ian-ink); box-shadow: inset 0 0 0 1.5px var(--ian-line); }
+.sources { display: flex; flex-wrap: wrap; gap: var(--ian-s-2); margin: 0; padding: 0; list-style: none; }
+.source { padding: var(--ian-s-1) var(--ian-s-3); border-radius: var(--ian-r-pill); background: var(--ian-brand-100); color: var(--ian-ink-2); font-size: var(--ian-fs-micro); font-weight: var(--ian-fw-bold); }
+.count { text-align: right; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

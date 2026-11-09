@@ -18,6 +18,7 @@ const LINKS = [
   { href: "/transfer", main: "이체", sub: "받는 분과 금액을 입력해요" },
   { href: "/auto-transfers", main: "자동이체", sub: "정해진 날 자동으로 보내요" },
   { href: "/cards", main: "카드", sub: "체크카드 발급과 관리" },
+  { href: "/assistant", main: "AI 도우미", sub: "약관·상품을 물어봐요" },
 ];
 
 export default function MenuPage() {
