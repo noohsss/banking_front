@@ -36,7 +36,10 @@ export interface paths {
         /**
          * 이메일 인증번호 발송
          * @description 목적별(`SIGNUP`/`RESET_PW`/`UNLOCK_ACCOUNT`) 인증번호를 이메일로 발송한다.
-         *     `UNLOCK_ACCOUNT`는 로그인 필요, 나머지는 비로그인 허용. 인증번호는 해시로 저장한다.
+         *     `UNLOCK_ACCOUNT`는 로그인 필요(미로그인 `401`)이며 요청 이메일이 본인 이메일과 같아야 한다(다르면 `400`).
+         *     나머지는 비로그인 허용. 인증번호는 해시로 저장한다.
+         *     `RESET_PW`는 가입 여부를 노출하지 않기 위해 회원이 아닌 이메일에도 `202`를 반환하되 메일은 보내지 않는다.
+         *     같은 이메일·목적의 재요청은 쿨다운 안에서 `429`.
          */
         post: operations["sendEmailVerification"];
         delete?: never;
@@ -176,7 +179,7 @@ export interface paths {
         post?: never;
         /**
          * 회원 탈퇴
-         * @description 회원 상태를 `WITHDRAWN`으로 바꾸고 `withdrawn_at`을 기록한다. 탈퇴 제한 정책(보유 계좌·잔액 등)은 미정.
+         * @description 보유 계좌를 **모두 해지**한 뒤에만 탈퇴할 수 있다. PIN 확인 후 해지되지 않은 계좌(정상·거래중지)가 하나라도 있으면 409 `USER_HAS_OPEN_ACCOUNTS`이고 `reasons`에 계좌별(마스킹된 번호) 사유가 담긴다. 계좌 해지는 잔액 0, 연결 체크카드·자동이체 없음을 요구하므로 그 조건이 자동으로 포함된다. 통과하면 회원 상태를 `WITHDRAWN`으로 바꾸고 `withdrawn_at`을 기록하며 현재 토큰을 폐기한다. 탈퇴한 회원의 ID·이메일·휴대폰으로는 다시 가입할 수 없다.
          */
         delete: operations["withdrawMe"];
         options?: never;
@@ -454,7 +457,7 @@ export interface paths {
         put?: never;
         /**
          * 거래내역 다운로드 신청
-         * @description 기간·이메일을 저장하고 이메일로 전달한다. `REQUESTED`는 접수일 뿐 발송 완료가 아니다(`SENT`/`FAILED`와 구분). 파일 형식은 미정.
+         * @description 기간을 저장하고 **가입 이메일로** 전달한다. 요청의 `email`은 생략할 수 있고, 보냈다면 가입 이메일과 같아야 한다(대소문자 무시). 다르면 400 `VALIDATION_ERROR`(`fieldErrors`의 `email`)이며 접수·발송은 일어나지 않는다. `REQUESTED`는 접수일 뿐 발송 완료가 아니다(`SENT`/`FAILED`와 구분). 파일 형식은 미정. 첨부 파일의 상대방·상대 계좌 열도 거래내역 조회와 같은 규칙으로 마스킹된다(예: `홍*동`, `110-****-5678`; 카드 가맹점명은 원문).
          */
         post: operations["createStatementRequest"];
         delete?: never;
@@ -498,10 +501,12 @@ export interface paths {
         put?: never;
         /**
          * 즉시이체
-         * @description PIN 확인 후 이체 공통 함수를 실행한다. 출금·입금·거래원장·한도 누적은 하나의 트랜잭션으로 처리하고 동시성을 제어한다.
+         * @description PIN과 출금 계좌 통장 비밀번호(4자리)를 확인한 뒤 이체 공통 함수를 실행한다.
+         *     통장 비밀번호가 틀리면 계좌 `password_fail_count`가 누적되고(롤백과 무관하게 유지), 한도에 도달하면 계좌가 거래중지(`SUSPENDED`)된다. 출금·입금·거래원장·한도 누적은 하나의 트랜잭션으로 처리하고 동시성을 제어한다.
          *     `Idempotency-Key`가 같은 요청은 한 번만 처리하고 기존 결과를 반환한다.
          *     검증: 본인 출금 계좌, 양수 금액, 잔액, 계좌 상태, 1일·1달 한도, 수취 계좌는 본 서비스 계좌만.
          *     응답이 유실되면 같은 키로 재전송하거나 `GET /transfers/{transferId}`로 결과를 확인한다.
+         *     같은 키로 출금 계좌·수취 계좌·금액이 다른 요청을 보내면 `IDEMPOTENCY_KEY_REUSED`(409)이다. 비즈니스 검증 실패(잔액·한도·계좌 상태)는 `FAILED`로 기록되며 `failReason`은 오류 코드다.
          */
         post: operations["createTransfer"];
         delete?: never;
@@ -595,15 +600,22 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** 자동이체 목록 */
+        /**
+         * 자동이체 목록
+         * @description 본인 출금 계좌의 자동이체만 최신 등록순으로 반환한다. 수취 계좌번호는 마스킹된다.
+         */
         get: operations["listAutoTransfers"];
         put?: never;
         /**
          * 자동이체 등록
          * @description 조건만 등록한다. 실제 이체는 스케줄러가 예정 시각에 이체 공통 함수로 실행하며 실행 시 한도·잔액·계좌 상태를 다시 검증한다.
          *     같은 회차는 중복 실행하지 않는다. 실패하면 `AUTO_TRANSFER_FAIL` 알림을 생성한다.
-         *     **등록 완료는 송금 완료가 아니다.**
-         *     실행일: 매주(`WEEKLY`) 0(월)~6(일), 매월(`MONTHLY`) 1~31. 말일 처리는 미정.
+         *     **등록 완료는 송금 완료가 아니다.** 등록 시점에는 이체·원장·잔액 변화가 없다.
+         *     실행일: 매주(`WEEKLY`) 0(월)~6(일), 매월(`MONTHLY`) 1~31. 매월 N일이 그 달에 없으면 그 달 말일로 보정한다(31일 → 2월 28/29일, 4·6·9·11월 30일).
+         *     `startDate`는 오늘(KST) 이후(내일부터), `endDate`는 선택이며 `startDate` 이상이어야 한다. 시작~종료 사이에 실행일이 없으면 `400`.
+         *     정의서에 PIN 요구가 없어 등록에는 PIN·통장 비밀번호를 받지 않는다(임시 정책).
+         *     스케줄러는 매일 설정된 시각(KST)에 오늘 회차만 실행한다. 서버가 꺼져 있어 지난 회차는 실행하지 않고 건너뛰며 실패 알림을 만든다.
+         *     실패(잔액 부족·한도 초과·계좌 상태 등)는 재시도 없이 알림만 만들고 다음 회차로 넘어간다. 마지막 회차 뒤에는 `ENDED`가 된다.
          */
         post: operations["createAutoTransfer"];
         delete?: never;
@@ -621,13 +633,18 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** 자동이체 상세 */
+        /**
+         * 자동이체 상세
+         * @description 본인 출금 계좌의 자동이체만 조회한다. 타인·없는 ID는 `404 NOT_FOUND`.
+         */
         get: operations["getAutoTransfer"];
         put?: never;
         post?: never;
         /**
          * 자동이체 해지
-         * @description 상태를 `CANCELED`로 바꾼다(이력 보존). 종료일 경과는 스케줄러가 `ENDED`로 처리한다.
+         * @description 상태를 `CANCELED`로 바꾼다(삭제가 아니며 이력 보존). 종료일 경과는 스케줄러가 `ENDED`로 처리한다.
+         *     이미 `CANCELED`/`ENDED`인 건은 상태를 바꾸지 않고 `200`으로 그대로 반환한다(임시 정책). 실행 중인 회차와는 행 잠금으로 직렬화된다.
+         *     해지·종료된 자동이체는 계좌 해지를 막지 않는다.
          */
         delete: operations["cancelAutoTransfer"];
         options?: never;
@@ -651,7 +668,8 @@ export interface paths {
         /**
          * 체크카드 발급 신청
          * @description 본인 소유·`ACTIVE` 계좌에 연결해 발급한다. 카드번호는 암호화 저장, 유효기간·브랜드(VISA/MASTER/LOCAL) 저장.
-         *     기본값: 일일 사용한도 100만원, 해외결제 off.
+         *     기본값: 일일 사용한도 100만원, 해외결제 off, 브랜드 `LOCAL`(임시), 유효기간은 발급일로부터 5년(임시).
+         *     같은 `Idempotency-Key`로 다시 요청하면 카드를 새로 만들지 않고 처음 응답을 반환한다.
          */
         post: operations["issueCard"];
         delete?: never;
@@ -678,7 +696,7 @@ export interface paths {
         head?: never;
         /**
          * 카드 한도·해외결제 변경
-         * @description `ACTIVE` 카드만 변경 가능. 한도 변경의 PIN 인증 필요 여부는 미정(기능정의서에 명시 없음).
+         * @description `ACTIVE` 카드만 변경 가능(그 외 `409 CARD_STATE_NOT_ALLOWED`). 한도 변경의 PIN 인증 필요 여부는 미정이라 현재 PIN을 받지 않는다.
          */
         patch: operations["updateCardSettings"];
         trace?: never;
@@ -714,7 +732,7 @@ export interface paths {
         put?: never;
         /**
          * 카드 정지
-         * @description `ACTIVE` → `SUSPENDED`. 정지 해제 정책은 미정.
+         * @description `ACTIVE` → `SUSPENDED`. 정지 해제는 정의서에 없어 제공하지 않는다(임시 정책, 정지 후에는 분실 신고·재발급만 가능).
          */
         post: operations["suspendCard"];
         delete?: never;
@@ -735,6 +753,7 @@ export interface paths {
         /**
          * 카드 분실 신고
          * @description `ACTIVE`/`SUSPENDED` → `LOST`. 이후 결제는 차단되며 재발급을 안내한다.
+         *     같은 `Idempotency-Key`로 다시 요청하면 처음 응답을 그대로 반환한다.
          */
         post: operations["reportCardLost"];
         delete?: never;
@@ -755,9 +774,58 @@ export interface paths {
         /**
          * 카드 재발급
          * @description 새 카드를 발급하고 `reissuedFromId`에 이전 카드를 연결한다. 이전 카드는 `REISSUED`로 전환한다.
-         *     한도·해외결제 설정은 이전 카드 값을 승계한다(승계 여부 미정).
+         *     한도·해외결제·브랜드는 이전 카드 값을 승계한다(임시 정책). `ACTIVE`/`SUSPENDED`/`LOST` 카드만 재발급할 수 있고
+         *     연결 계좌가 `ACTIVE`가 아니면 `409 ACCOUNT_STATE_NOT_ALLOWED`. 같은 `Idempotency-Key`는 새 카드를 또 만들지 않는다.
          */
         post: operations["reissueCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/_dev/auto-transfers/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [개발 전용] 자동이체 수동 실행
+         * @description 스케줄러 실행 함수를 즉시 한 번 호출하는 개발용 API다. **`local`·`test`에서만 등록되고 `staging`·`prod`에서는 등록되지 않는다.**
+         *     **호출한 사용자 본인의 출금 자동이체만** 실행한다(남의 자동이체는 실행하지 않는다).
+         *     `asOf`(선택, 기본 오늘 KST)를 기준일로 삼아 `ACTIVE`이고 `nextRunDate <= asOf`인 건을 처리한다.
+         *     `nextRunDate == asOf`인 회차만 실제로 이체하고, 그보다 과거 회차는 건너뛰며 실패 알림을 만든다.
+         */
+        post: operations["runAutoTransfersDev"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/_dev/card-payments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * [개발 전용] 카드 결제 시뮬레이션
+         * @description 기능정의서에 카드 결제 승인 API가 없어 결제 처리를 시험하기 위한 개발용 API다. **`local`·`test`에서만 등록되고 `staging`·`prod`에서는 등록되지 않는다.**
+         *     본인 카드만 사용할 수 있다. 한 트랜잭션으로 카드결제 내역 생성, 계좌 잔액 차감, 거래원장(`CARD`) 기록,
+         *     `CARD_PAYMENT` 알림 생성을 처리한다. 실패한 시도는 결제내역에 남기지 않는다.
+         *     검증 순서는 카드 상태(`409 CARD_STATE_NOT_ALLOWED`), 계좌 상태(`409 ACCOUNT_STATE_NOT_ALLOWED`),
+         *     해외결제 허용 여부(`403 OVERSEAS_NOT_ALLOWED`), 오늘(KST) 일일 사용한도(`422 CARD_DAILY_LIMIT_EXCEEDED`),
+         *     잔액(`422 INSUFFICIENT_BALANCE`)이다.
+         */
+        post: operations["simulateCardPayment"];
         delete?: never;
         options?: never;
         head?: never;
@@ -992,8 +1060,9 @@ export interface components {
              * @description 거래 후 잔액
              */
             newBalance?: number;
-            /** @description 카드는 가맹점명 */
+            /** @description 상대방 이름은 마스킹되어 반환한다(예: `홍*동`). 단 카드 결제(`CARD`)의 가맹점명은 원문이다. 상대방이 없으면 null */
             counterpartyName?: string | null;
+            /** @description 상대방 계좌번호는 마스킹되어 반환한다(예: `110-****-5678`). 상대방이 없으면 null */
             counterpartyAccount?: string | null;
             memo?: string | null;
             /** Format: date-time */
@@ -1022,6 +1091,8 @@ export interface components {
             amount: number;
             memo?: string;
             pin: components["schemas"]["Pin"];
+            /** @description 출금 계좌 통장 비밀번호 4자리(숫자). 로그·응답에 남기지 않는다. */
+            accountPassword: string;
         };
         Transfer: {
             /** Format: uuid */
@@ -1055,6 +1126,7 @@ export interface components {
             /** Format: int64 */
             id?: number;
             accountNum?: components["schemas"]["AccountNum"];
+            /** @description 예금주 이름은 마스킹되어 반환한다(예: `홍*동`). 저장은 전체 이름이다. accountNum은 이체에 그대로 쓰므로 전체 번호다 */
             holderName?: string;
             alias?: string | null;
         };
@@ -1068,11 +1140,14 @@ export interface components {
             cycle: components["schemas"]["AutoTransferCycle"];
             /** @description WEEKLY: 0(월)~6(일), MONTHLY: 1~31 */
             runDay: number;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description 오늘(KST) 이후
+             */
             startDate: string;
             /**
              * Format: date
-             * @description 선택, startDate 이후
+             * @description 선택, startDate 이상
              */
             endDate?: string | null;
         };
@@ -1091,7 +1166,10 @@ export interface components {
             startDate?: string;
             /** Format: date */
             endDate?: string | null;
-            /** Format: date */
+            /**
+             * Format: date
+             * @description 다음 실행 예정일. 종료(`ENDED`)된 건은 마지막 값을 유지한다
+             */
             nextRunDate?: string | null;
             status?: components["schemas"]["AutoTransferStatus"];
             /** Format: date-time */
@@ -1190,9 +1268,11 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description 요청 과다 (`TOO_MANY_REQUESTS`) */
+        /** @description 요청 과다 (`TOO_MANY_REQUESTS`). 속도 제한에 걸린 경우 `Retry-After` 헤더(초)가 있다. 인증번호 재발송 쿨다운에 걸린 429에는 이 헤더가 없다. */
         TooManyRequests: {
             headers: {
+                /** @description 다시 시도할 수 있기까지 남은 시간(초). 속도 제한 응답에만 있다. */
+                "Retry-After"?: number;
                 [name: string]: unknown;
             };
             content: {
@@ -1304,6 +1384,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
             429: components["responses"]["TooManyRequests"];
         };
     };
@@ -1349,6 +1430,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     signup: {
@@ -1392,6 +1474,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     login: {
@@ -1414,6 +1497,7 @@ export interface operations {
             200: components["responses"]["LoginSuccess"];
             401: components["responses"]["AuthFailed"];
             423: components["responses"]["UserLocked"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     loginWithPin: {
@@ -1435,6 +1519,7 @@ export interface operations {
             200: components["responses"]["LoginSuccess"];
             401: components["responses"]["AuthFailed"];
             423: components["responses"]["UserLocked"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     logout: {
@@ -1492,6 +1577,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            429: components["responses"]["TooManyRequests"];
         };
     };
     getMe: {
@@ -1539,6 +1625,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PinInvalid"];
+            /** @description 해지되지 않은 계좌가 있어 탈퇴할 수 없다 (`USER_HAS_OPEN_ACCOUNTS`). `reasons`에 계좌별 사유 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     updateMe: {
@@ -1778,7 +1873,8 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    nickname?: string;
+                    /** @description null이면 별칭 삭제 */
+                    nickname?: string | null;
                     isFavorite?: boolean;
                 };
             };
@@ -2091,8 +2187,11 @@ export interface operations {
                     fromDate: string;
                     /** Format: date */
                     toDate: string;
-                    /** Format: email */
-                    email: string;
+                    /**
+                     * Format: email
+                     * @description 선택. 생략하면 가입 이메일로 보낸다. 보냈다면 가입 이메일과 같아야 하며 다른 주소는 거부된다.
+                     */
+                    email?: string;
                 };
             };
         };
@@ -2213,7 +2312,15 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
-            403: components["responses"]["PinInvalid"];
+            /** @description PIN 불일치(`PIN_INVALID`), 통장 비밀번호 불일치(`ACCOUNT_PASSWORD_INVALID`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description 출금 계좌 없음 또는 본인 소유 아님(`NOT_FOUND`), 수취 계좌가 본 서비스에 없음(`RECIPIENT_NOT_FOUND`) */
             404: {
                 headers: {
@@ -2223,7 +2330,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 계좌 상태 불허(`ACCOUNT_STATE_NOT_ALLOWED`) */
+            /** @description 계좌 상태 불허(`ACCOUNT_STATE_NOT_ALLOWED`), 같은 Idempotency-Key로 다른 내용 요청(`IDEMPOTENCY_KEY_REUSED`) */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -2474,6 +2581,15 @@ export interface operations {
                 };
             };
             409: components["responses"]["AccountStateNotAllowed"];
+            /** @description 출금·수취 계좌가 같음 (`SAME_ACCOUNT`) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getAutoTransfer: {
@@ -2562,6 +2678,7 @@ export interface operations {
                 "application/json": {
                     /** Format: uuid */
                     accountId: string;
+                    /** @default LOCAL */
                     cardNetwork?: components["schemas"]["CardNetwork"];
                     /**
                      * Format: int64
@@ -2755,6 +2872,107 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["CardStateNotAllowed"];
+        };
+    };
+    runAutoTransfersDev: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: date
+                     * @description 시뮬레이션 기준일
+                     */
+                    asOf?: string | null;
+                };
+            };
+        };
+        responses: {
+            /** @description 실행 결과 요약 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        processed?: number;
+                        succeeded?: number;
+                        failed?: number;
+                        /** @description 지난 회차라 실행하지 않고 건너뛴 건수 */
+                        skipped?: number;
+                    };
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    simulateCardPayment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    cardId: string;
+                    /** Format: int64 */
+                    amount: number;
+                    /** @description 가맹점명 */
+                    place: string;
+                    /** @default false */
+                    overseas?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description 결제 처리됨 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CardPayment"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            /** @description 해외결제가 허용되지 않은 카드 (`OVERSEAS_NOT_ALLOWED`) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            /** @description 카드 상태(`CARD_STATE_NOT_ALLOWED`) 또는 계좌 상태(`ACCOUNT_STATE_NOT_ALLOWED`)가 결제를 허용하지 않음 */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 카드 일일 한도 초과(`CARD_DAILY_LIMIT_EXCEEDED`), 잔액 부족(`INSUFFICIENT_BALANCE`) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
 }

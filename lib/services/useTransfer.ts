@@ -8,7 +8,7 @@ import { getTransferLimits, type TransferLimitsInfo } from "@/lib/api/transferLi
 import type { Transfer } from "@/lib/types";
 import { useAccounts } from "./useAccounts";
 
-export interface SendInput { fromId: string; toNumber: string; amount: number; memo: string; pin: string; key: string }
+export interface SendInput { fromId: string; toNumber: string; amount: number; memo: string; pin: string; accountPassword: string; key: string }
 export type TransferLimits = TransferLimitsInfo;
 
 // 모의 저장소의 실패 코드 → 명세 오류 코드/HTTP 상태
@@ -53,7 +53,7 @@ export function useTransfer(fromId?: string) {
       const [status, code] = MOCK_ERR[r.code];
       throw new ApiError(status, code, r.message);
     }
-    const t = await createTransfer({ fromAccountId: i.fromId, toAccountNum: i.toNumber, amount: i.amount, memo: i.memo || undefined, pin: i.pin }, i.key);
+    const t = await createTransfer({ fromAccountId: i.fromId, toAccountNum: i.toNumber, amount: i.amount, memo: i.memo || undefined, pin: i.pin, accountPassword: i.accountPassword }, i.key);
     if (t.status === "SUCCESS") { await refreshAccounts(); await loadLimits(); }
     return t;
   };

@@ -25,8 +25,8 @@ export const lookupAccount = async (accountNum: string) => {
 export const listTransfers = async (q: { accountId?: string; status?: Transfer["status"]; page?: number; size?: number } = {}) =>
   ((await call(api.GET("/transfers", { params: { query: q } }))).items ?? []).map(toTransfer);
 
-/** PIN은 본문으로만 보낸다. 같은 시도를 재전송할 때는 같은 idempotencyKey를 써야 중복 이체가 안 생긴다. */
-export const createTransfer = async (body: { fromAccountId: string; toAccountNum: string; amount: number; memo?: string; pin: string }, idempotencyKey: string) =>
+/** PIN·통장 비밀번호는 본문으로만 보낸다. 같은 시도를 재전송할 때는 같은 idempotencyKey를 써야 중복 이체가 안 생긴다. */
+export const createTransfer = async (body: { fromAccountId: string; toAccountNum: string; amount: number; memo?: string; pin: string; accountPassword: string }, idempotencyKey: string) =>
   toTransfer(await call(api.POST("/transfers", { params: { header: { "Idempotency-Key": idempotencyKey } }, body })));
 
 export const getTransfer = async (transferId: string) =>

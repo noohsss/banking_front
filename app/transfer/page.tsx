@@ -58,6 +58,8 @@ function TransferFlow() {
   const [amountText, setAmountText] = useState("");
   const [memo, setMemo] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [acctPw, setAcctPw] = useState(""); // 메모리에만 둔다(저장·로그 금지). 성공·초기화·비밀번호 오류 시 비운다
+  const [acctPwError, setAcctPwError] = useState("");
   const [pinError, setPinError] = useState(false);
   const [pinFails, setPinFails] = useState(0);
   const [notice, setNotice] = useState("");
@@ -89,7 +91,8 @@ function TransferFlow() {
   }
   const selfError = from && number === from.number ? "출금 계좌와 같은 계좌예요. 다른 계좌번호를 입력해 주세요." : "";
   const numberError = selfError || lookupError;
-  const canNext = !!from && !!verifiedName && !selfError && amount > 0 && !amountError;
+  const pwOk = !IS_LIVE || /^\d{4}$/.test(acctPw); // mock은 통장 비밀번호를 받지 않는다
+  const canNext = !!from && !!verifiedName && !selfError && amount > 0 && !amountError && pwOk;
   const favPerson = people.find((p) => p.number === number);
 
   const pickNumber = (v: string) => {
@@ -117,14 +120,14 @@ function TransferFlow() {
 
   const reset = () => {
     running.current = false; attempt.current = null;
-    setResult(null); setStep("form"); setNumber(""); setVerifiedName(null); setLookupError(""); setAmountText(""); setMemo(""); setPinFails(0); setPinError(false);
+    setResult(null); setStep("form"); setNumber(""); setVerifiedName(null); setLookupError(""); setAmountText(""); setMemo(""); setAcctPw(""); setAcctPwError(""); setPinFails(0); setPinError(false);
   };
 
   // 서버 응답(status)을 결과 화면으로. PENDING은 실패로 단정하지 않고 "결과 확인 중"으로 둔다.
   const apply = (t: Transfer, balanceAfter: number) => {
     if (t.status === "PENDING") { setResult({ kind: "pending", transferId: t.id }); return; }
     attempt.current = null;
-    if (t.status === "SUCCESS") { setResult({ kind: "success", transfer: t, balanceAfter }); void refreshAccounts(); void refreshRecipients(); return; }
+    if (t.status === "SUCCESS") { setAcctPw(""); setResult({ kind: "success", transfer: t, balanceAfter }); void refreshAccounts(); void refreshRecipients(); return; }
     running.current = false;
     setResult({ kind: "failed", message: t.failReason || "이체하지 못했어요. 잠시 후 다시 시도해 주세요." });
   };
@@ -135,6 +138,13 @@ function TransferFlow() {
       attempt.current = null; running.current = false;
       setStep("pin"); setPinError(true);
       timers.current.push(setTimeout(() => setPinError(false), 700));
+      return;
+    }
+    if (e instanceof ApiError && e.is("ACCOUNT_PASSWORD_INVALID")) {
+      attempt.current = null; running.current = false;
+      setAcctPw(""); setAcctPwError("통장 비밀번호가 맞지 않아요. 다시 입력해 주세요. 여러 번 틀리면 계좌가 거래중지될 수 있어요.");
+      void refreshAccounts(); // 한도에 닿아 거래중지됐다면 출금 계좌 목록에서 빠진다
+      setStep("form");
       return;
     }
     if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
@@ -158,7 +168,7 @@ function TransferFlow() {
     }
     running.current = true;
     setStep("run");
-    const input: SendInput = { fromId: from.id, toNumber: number, amount, memo: memo.trim(), pin, key: newIdempotencyKey() };
+    const input: SendInput = { fromId: from.id, toNumber: number, amount, memo: memo.trim(), pin, accountPassword: acctPw, key: newIdempotencyKey() };
     attempt.current = input;
     const balanceAfter = from.balance - amount;
     if (!IS_LIVE) await new Promise<void>((r) => timers.current.push(setTimeout(r, 900))); // 데모용 가짜 지연
@@ -385,6 +395,16 @@ function TransferFlow() {
               <div className="ian-row ian-row--between ian-t-micro"><span>사용 {wonUnit(usedToday)}</span><span>1일 {wonUnit(lim.dailyLimit)}</span></div>
               <div className="ian-t-micro">이번 달 {wonUnit(leftMonth)} 남음 (한 달 {wonUnit(lim.monthlyLimit)})</div>
             </div>
+          </div>
+        )}
+
+        {IS_LIVE && (
+          <div className="ian-field">
+            <label className="ian-field__label" htmlFor="acct-pw">통장 비밀번호 (4자리)</label>
+            <input id="acct-pw" className="ian-input" type="password" inputMode="numeric" autoComplete="off" maxLength={4} placeholder="••••" value={acctPw}
+              aria-invalid={acctPwError ? true : undefined} aria-describedby={acctPwError ? "acct-pw-error" : undefined}
+              onChange={(e) => { setAcctPw(e.target.value.replace(/\D/g, "").slice(0, 4)); setAcctPwError(""); }} />
+            {acctPwError && <span id="acct-pw-error" className="ian-field__error" role="alert">{acctPwError}</span>}
           </div>
         )}
 
