@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { IS_LIVE } from "@/lib/api/mode";
 import { newIdempotencyKey } from "@/lib/api/client";
@@ -24,13 +24,16 @@ export function useOpenAccount() {
   const key = useRef(newIdempotencyKey());
   const fn = useCallback(async () => {
     const [products, terms] = await Promise.all([listAccountProducts(), listTerms("ACCOUNT_OPEN")]);
-    return { product: products[0] ?? null as AccountProduct | null, terms: terms.map((t): OpenTerm => ({ id: String(t.id), req: t.required, label: t.title, content: t.content })) };
+    return { products, terms: terms.map((t): OpenTerm => ({ id: String(t.id), req: t.required, label: t.title, content: t.content })) };
   }, []);
   const live = useAccountLoad(fn, IS_LIVE);
+  const [pickedId, select] = useState<number | null>(null);
+  const products = live.data?.products ?? [];
+  const selected = products.find((p) => p.id === pickedId) ?? products[0] ?? null;   // 기본 선택은 첫 상품
 
   const open = async (i: OpenInput): Promise<Account> => {
     if (!IS_LIVE) { await new Promise((r) => setTimeout(r, 800)); return mockOpen(i.alias); }
-    const p = live.data?.product;
+    const p = selected;
     if (!p) throw new Error("no product");
     const a = await openAccount({
       productId: p.id, accountPassword: i.password, nickname: i.alias || undefined,
@@ -41,6 +44,7 @@ export function useOpenAccount() {
     return a;
   };
 
-  if (!IS_LIVE) return { product: { id: 0, name: "IAN 입출금통장", rate: 0.1, description: "" } as AccountProduct | null, terms: MOCK_TERMS, loading: false, error: null as string | null, retry: async () => {}, open };
-  return { product: live.data?.product ?? null, terms: live.data?.terms ?? [], loading: live.loading, error: live.error, retry: live.refresh, open };
+  const mockProduct: AccountProduct = { id: 0, name: "IAN 입출금통장", rate: 0.1, description: "" };
+  if (!IS_LIVE) return { product: mockProduct as AccountProduct | null, products: [mockProduct], selectedId: 0, select, terms: MOCK_TERMS, loading: false, error: null as string | null, retry: async () => {}, open };
+  return { product: selected, products, selectedId: selected?.id ?? null, select, terms: live.data?.terms ?? [], loading: live.loading, error: live.error, retry: live.refresh, open };
 }

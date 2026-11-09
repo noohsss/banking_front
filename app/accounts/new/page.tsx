@@ -21,7 +21,7 @@ const DEFAULT_MONTHLY = 5_000_000;
 const digits = (v: string) => v.replace(/\D/g, "").slice(0, 4);
 
 export default function NewAccountPage() {
-  const { product, terms: TERMS, loading: infoLoading, error: infoError, retry, open } = useOpenAccount();
+  const { product, products, selectedId, select, terms: TERMS, loading: infoLoading, error: infoError, retry, open } = useOpenAccount();
   const [step, setStep] = useState(0);
   const [agree, setAgree] = useState<Record<string, boolean>>({});
   const [pw, setPw] = useState("");
@@ -108,7 +108,7 @@ export default function NewAccountPage() {
               <div className="ian-t-title2">이 내용으로 계좌를 열까요?</div>
               <div className="ian-receipt">
                 <dl className="ian-receipt__rows" style={{ borderTop: 0, paddingTop: 0, margin: 0 }}>
-                  <div className="ian-receipt__row"><dt>상품</dt><dd>IAN 입출금통장</dd></div>
+                  <div className="ian-receipt__row"><dt>상품</dt><dd>{product?.name ?? "IAN 입출금통장"}</dd></div>
                   <div className="ian-receipt__row"><dt>계좌 별칭</dt><dd>{alias.trim() || "입출금통장"}</dd></div>
                   <div className="ian-receipt__row"><dt>개설 목적</dt><dd>{purpose}</dd></div>
                   <div className="ian-receipt__row"><dt>자금 출처</dt><dd>{source}</dd></div>
@@ -136,12 +136,30 @@ export default function NewAccountPage() {
 
         {step === 0 && (
           <>
-            <h1 className="ian-t-title1">수수료 없는<br />입출금통장을 열어요</h1>
-            <div className="ian-tile ian-tile--tint" style={{ minHeight: 0 }}>
+            <h1 className="ian-t-title1">{IS_LIVE ? <>상품을 골라<br />새 계좌를 열어요</> : <>수수료 없는<br />입출금통장을 열어요</>}</h1>
+            {IS_LIVE && products.length > 0 ? (
+              <fieldset className={css.fieldset}>
+                <legend className={css.legend}>가입할 상품을 골라 주세요</legend>
+                <div className={css.products}>
+                  {products.map((p) => (
+                    <label key={p.id} className={css.product}>
+                      <input type="radio" name="product" value={p.id} checked={selectedId === p.id} onChange={() => select(p.id)} />
+                      <span style={{ display: "grid", gap: "var(--ian-s-2)" }}>
+                        <b className="ian-t-title2">{p.name}</b>
+                        <span className={css.rate}><span className="ian-t-caption">연 금리</span><span className="ian-t-amount">{p.rate}<span className="ian-unit">%</span></span></span>
+                        {p.description && <span className="ian-tile__sub">{p.description}</span>}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : (
+              <div className="ian-tile ian-tile--tint" style={{ minHeight: 0 }}>
               <b className="ian-t-title2">{product?.name ?? "IAN 입출금통장"}</b>
               <div className={css.rate}><span className="ian-t-caption">연 금리</span><span className="ian-t-amount">{product ? product.rate : "-"}<span className="ian-unit">%</span></span></div>
               <p className="ian-tile__sub">{(IS_LIVE && product?.description) || "월급 받기, 생활비 쓰기, 이체와 체크카드 연결까지 한 통장으로 쓸 수 있어요. 가입 조건 없이 누구나 열 수 있어요."}</p>
-            </div>
+              </div>
+            )}
             {!IS_LIVE && (
               <ul className="ian-t-caption" style={{ margin: 0, paddingLeft: 20, display: "grid", gap: 4 }}>
                 <li>개설 즉시 1일 100만원, 1달 500만원까지 이체할 수 있어요.</li>
@@ -169,7 +187,7 @@ export default function NewAccountPage() {
               {TERMS.map((t) => (
                 <label key={t.id} className="ian-check">
                   <input type="checkbox" checked={!!agree[t.id]} onChange={(e) => setAgree({ ...agree, [t.id]: e.target.checked })} aria-describedby={tried && t.req && !agree[t.id] ? "terms-err" : undefined} />
-                  <span><span className={`ian-check__tag ${t.req ? "" : "ian-check__tag--opt"}`}>{t.req ? "필수" : "선택"}</span>{t.label}{t.content && <details onClick={(e) => e.stopPropagation()}><summary className="ian-t-micro">내용 보기</summary><span className="ian-t-micro" style={{ whiteSpace: "pre-wrap" }}>{t.content}</span></details>}</span>
+                  <span><span className={`ian-check__tag ${t.req ? "" : "ian-check__tag--opt"}`}>{t.req ? "필수" : "선택"}</span>{t.label}{t.content && <details onClick={(e) => e.stopPropagation()}><summary className="ian-t-micro">내용 보기</summary><span className={`ian-t-micro ${css.termContent}`}>{t.content}</span></details>}</span>
                 </label>
               ))}
             </div>
@@ -200,7 +218,7 @@ export default function NewAccountPage() {
             <div className="ian-field">
               <label className="ian-field__label" htmlFor="alias">계좌 별칭 (선택)</label>
               <input id="alias" className="ian-input" maxLength={20} placeholder="예: 생활비" value={alias} onChange={(e) => setAlias(e.target.value)} aria-describedby="alias-hint" />
-              <span id="alias-hint" className="ian-field__hint">비워 두면 &apos;입출금통장&apos;으로 만들어요.</span>
+              <span id="alias-hint" className="ian-field__hint">비워 두면 &apos;{(IS_LIVE && product?.name) || "입출금통장"}&apos;으로 만들어요.</span>
             </div>
             <fieldset className={css.fieldset} aria-describedby={tried && infoErr.purpose ? "purpose-err" : undefined}>
               <legend className={css.legend}>개설 목적<span className="ian-req">*</span></legend>

@@ -5,3 +5,9 @@
 .termAll { border-bottom: 2px solid var(--ian-line); }
 .pwInput { letter-spacing: 0.5em; font-family: var(--ian-font-num); }
 .rate { display: flex; align-items: baseline; gap: var(--ian-s-2); }
+.products { display: grid; gap: var(--ian-s-3); }
+.product { display: grid; grid-template-columns: auto 1fr; gap: var(--ian-s-3); align-items: start; min-height: var(--ian-tap); padding: var(--ian-s-5); border-radius: var(--ian-r-tile); background: var(--ian-surface); border: 2px solid transparent; cursor: pointer; }
+.product:has(input:checked) { border-color: var(--ian-brand); }
+.product:has(input:focus-visible) { outline: 2px solid var(--ian-brand); outline-offset: 2px; }
+.product input { margin-top: var(--ian-s-1); accent-color: var(--ian-brand); }
+.termContent { display: block; max-height: 40vh; overflow-y: auto; white-space: pre-line; overscroll-behavior: contain; }
