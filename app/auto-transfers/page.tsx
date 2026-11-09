@@ -101,7 +101,7 @@ export default function AutoTransfersPage() {
     from: from ? "" : "출금 계좌를 선택해 주세요.",
     to: from && number === from.number ? "출금 계좌와 같은 계좌예요. 다른 계좌번호를 입력해 주세요." : lookupError || (!name ? "수취인 확인을 눌러 받는 분을 확인해 주세요." : ""),
     amount: !(amount > 0) ? "금액을 입력해 주세요." : from && amount > from.dailyLimit ? `1일 이체한도 ${wonUnit(from.dailyLimit)}보다 커요. 금액을 줄여 주세요.` : "",
-    start: !start ? "시작일을 선택해 주세요." : start < todayKey ? "시작일은 오늘 이후로 골라 주세요." : "",
+    start: !start ? "시작일을 선택해 주세요." : start < tomorrowKey ? "시작일은 내일부터 골라 주세요." : "",
     end: end && end < start ? "종료일은 시작일 이후로 골라 주세요." : "",
   };
   const valid = !Object.values(errors).some(Boolean);
@@ -217,7 +217,7 @@ export default function AutoTransfersPage() {
 
               <div className="ian-field">
                 <label className="ian-field__label" htmlFor="af-start">시작일</label>
-                <input id="af-start" className="ian-input" type="date" min={todayKey} value={start}
+                <input id="af-start" className="ian-input" type="date" min={tomorrowKey} value={start}
                   aria-invalid={show("start") ? true : undefined} aria-describedby={show("start") ? "af-start-err" : undefined}
                   onChange={(e) => setStart(e.target.value)} />
                 {show("start") && <span id="af-start-err" className="ian-field__error" role="alert">{show("start")}</span>}
@@ -225,7 +225,7 @@ export default function AutoTransfersPage() {
 
               <div className="ian-field">
                 <label className="ian-field__label" htmlFor="af-end">종료일 (선택)</label>
-                <input id="af-end" className="ian-input" type="date" min={start || todayKey} value={end}
+                <input id="af-end" className="ian-input" type="date" min={start || tomorrowKey} value={end}
                   aria-invalid={show("end") ? true : undefined} aria-describedby={show("end") ? "af-end-err" : "af-end-hint"}
                   onChange={(e) => setEnd(e.target.value)} />
                 {show("end")

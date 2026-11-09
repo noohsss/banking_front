@@ -24,7 +24,6 @@ const PERIODS: { k: PeriodKey; l: string; m?: number }[] = [
 ];
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const monthsAgo = (now: Date, m: number) => { const d = new Date(now); d.setMonth(d.getMonth() - m); d.setHours(0, 0, 0, 0); return d; };
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const onlyNum = (v: string) => v.replace(/\D/g, "").slice(0, 12);
 const fmtNum = (v: string) => (v ? Number(v).toLocaleString("ko-KR") : "");
 
@@ -57,7 +56,6 @@ export default function AccountDetailPage() {
   const [dlOpen, setDlOpen] = useState(false);
   const [dlFrom, setDlFrom] = useState(iso(monthsAgo(now, 3)));
   const [dlTo, setDlTo] = useState(iso(now));
-  const [dlEmail, setDlEmail] = useState("");
   const [dlTried, setDlTried] = useState(false);
   const [dlDone, setDlDone] = useState<StatementRequest | null>(null);
   const [dlBusy, setDlBusy] = useState(false);
@@ -109,14 +107,13 @@ export default function AccountDetailPage() {
   // 다운로드 검증
   const dlErr = {
     range: !dlFrom || !dlTo ? "신청 기간을 모두 입력해 주세요." : dlFrom > dlTo ? "시작일이 종료일보다 늦어요. 날짜를 다시 골라 주세요." : dlTo > iso(now) ? "종료일은 오늘 이전으로 골라 주세요." : "",
-    email: !dlEmail.trim() ? "받을 이메일을 입력해 주세요." : !EMAIL.test(dlEmail.trim()) ? "이메일 형식이 맞지 않아요. 예: name@example.com" : "",
   };
-  const openDl = () => { setDlEmail(user?.email ?? ""); setDlTried(false); setDlDone(null); setDlFail(""); void refreshStatements(); setDlOpen(true); };
+  const openDl = () => { setDlTried(false); setDlDone(null); setDlFail(""); void refreshStatements(); setDlOpen(true); };
   const submitDl = async () => {
     setDlTried(true);
-    if (dlErr.range || dlErr.email || dlBusy) return;
+    if (dlErr.range || dlBusy) return;
     setDlBusy(true); setDlFail("");
-    try { setDlDone(await requestStatement(dlFrom, dlTo, dlEmail.trim())); }
+    try { setDlDone(await requestStatement(dlFrom, dlTo)); }
     catch (e) { setDlFail(errorMessage(e)); }
     finally { setDlBusy(false); }
   };
@@ -153,7 +150,7 @@ export default function AccountDetailPage() {
                   <div className="ian-result" data-state="pending" style={{ padding: "var(--ian-s-4) 0 0" }}>
                     <div className="ian-result__mark" aria-hidden="true" />
                     <div className="ian-t-title2" role="status">신청이 접수됐어요</div>
-                    <p className="ian-result__desc">아직 보내기 전이에요. <b>{dlDone.email}</b>로 발송이 끝나면 &apos;발송완료&apos;로 바뀌어요. 신청 내역에서 확인해 주세요.</p>
+                    <p className="ian-result__desc">아직 보내기 전이에요. <b>{dlDone.email || user?.email}</b>로 발송이 끝나면 &apos;발송완료&apos;로 바뀌어요. 신청 내역에서 확인해 주세요.</p>
                   </div>
                   <button type="button" className="ian-btn ian-btn--primary ian-btn--block" onClick={() => setDlOpen(false)}>확인</button>
                 </>
@@ -171,11 +168,7 @@ export default function AccountDetailPage() {
                     </div>
                   </div>
                   {dlTried && dlErr.range && <span id="dl-range-err" className="ian-field__error" role="alert">{dlErr.range}</span>}
-                  <div className="ian-field">
-                    <label className="ian-field__label" htmlFor="dl-email">받을 이메일<span className="ian-req">*</span></label>
-                    <input id="dl-email" type="email" inputMode="email" autoComplete="email" className="ian-input" value={dlEmail} onChange={(e) => setDlEmail(e.target.value)} aria-invalid={dlTried && !!dlErr.email} aria-describedby={dlTried && dlErr.email ? "dl-email-err" : "dl-email-hint"} />
-                    {dlTried && dlErr.email ? <span id="dl-email-err" className="ian-field__error" role="alert">{dlErr.email}</span> : <span id="dl-email-hint" className="ian-field__hint">신청하면 접수 상태로 시작해요. 발송이 끝나야 메일함에서 받아볼 수 있어요.</span>}
-                  </div>
+                  <p className="ian-field__hint">가입한 이메일{user?.email ? <> <b>{user.email}</b></> : null}로 보내요. 신청하면 접수 상태로 시작하고, 발송이 끝나야 메일함에서 받아볼 수 있어요.</p>
                   {dlFail && <div className="ian-notice ian-notice--danger" role="alert"><div>{dlFail}</div></div>}
                   <div className="ian-row">
                     <button type="button" className="ian-btn ian-btn--outline" style={{ flex: 1 }} onClick={() => setDlOpen(false)}>취소</button>

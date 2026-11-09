@@ -67,5 +67,5 @@ const STATEMENT_LABEL: Record<S["StatementStatus"], StatementStatus> = { REQUEST
 const mapStatement = (s: S["StatementRequest"]): StatementRequest => ({ id: String(s.id ?? ""), from: s.fromDate ?? "", to: s.toDate ?? "", email: s.email ?? "", status: STATEMENT_LABEL[s.status ?? "REQUESTED"] });
 export const listStatementRequests = async (accountId: string, page = 0, size = 20): Promise<StatementRequest[]> =>
   (await call(api.GET("/accounts/{accountId}/statement-requests", { params: { path: { accountId }, query: { page, size } } }))).items?.map(mapStatement) ?? [];
-export const createStatementRequest = async (accountId: string, fromDate: string, toDate: string, email: string): Promise<StatementRequest> =>
-  mapStatement(await call(api.POST("/accounts/{accountId}/statement-requests", { params: { path: { accountId } }, body: { fromDate, toDate, email } })));
+export const createStatementRequest = async (accountId: string, fromDate: string, toDate: string): Promise<StatementRequest> =>
+  mapStatement(await call(api.POST("/accounts/{accountId}/statement-requests", { params: { path: { accountId } }, body: { fromDate, toDate } })));
