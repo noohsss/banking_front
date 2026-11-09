@@ -5,7 +5,7 @@ export type ApiErrorCode = ApiErrorBody["code"];
 
 /** 서버 오류 응답(`{code,message,fieldErrors,reasons}`)을 담는 예외. 네트워크 실패는 status 0. */
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string, public fieldErrors: { field: string; reason: string }[] = [], public reasons: string[] = []) {
+  constructor(public status: number, public code: string, message: string, public fieldErrors: { field: string; reason: string }[] = [], public reasons: string[] = [], public retryAfter?: number) {
     super(message);
     this.name = "ApiError";
   }
@@ -27,6 +27,8 @@ const FALLBACK: Record<string, string> = {
   SAME_ACCOUNT: "같은 계좌로는 이체할 수 없어요.",
   ACCOUNT_STATE_NOT_ALLOWED: "거래중지 또는 해지된 계좌에서는 할 수 없어요.",
   ACCOUNT_CLOSE_BLOCKED: "해지할 수 없는 사유가 있어요.",
+  USER_HAS_OPEN_ACCOUNTS: "해지하지 않은 계좌가 있어 탈퇴할 수 없어요. 계좌를 모두 해지한 뒤 다시 시도해 주세요.",
+  ACCOUNT_PASSWORD_INVALID: "통장 비밀번호가 맞지 않아요.",
   CARD_STATE_NOT_ALLOWED: "현재 카드 상태에서는 할 수 없어요.",
   VERIFICATION_FAILED: "인증번호가 맞지 않거나 만료됐어요.",
   VERIFICATION_REQUIRED: "이메일 본인확인을 먼저 완료해 주세요.",
@@ -40,6 +42,7 @@ const FALLBACK: Record<string, string> = {
   NETWORK: "서버에 연결할 수 없어요. 잠시 후 다시 시도해 주세요.",
 };
 export const errorMessage = (e: unknown): string => {
+  if (e instanceof ApiError && e.retryAfter) return `${e.retryAfter}초 뒤에 다시 시도해 주세요.`;
   if (e instanceof ApiError) return e.message || FALLBACK[e.code] || "처리하지 못했어요. 잠시 후 다시 시도해 주세요.";
   return FALLBACK.NETWORK;
 };

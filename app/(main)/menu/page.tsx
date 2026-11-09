@@ -29,6 +29,7 @@ export default function MenuPage() {
   const [phase, setPhase] = useState<"confirm" | "pin">("confirm");
   const [typed, setTyped] = useState("");
   const [pinErr, setPinErr] = useState("");
+  const [blocked, setBlocked] = useState<string[] | null>(null);
   const busy = useRef(false);
   const [saving, setSaving] = useState(false);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -36,7 +37,7 @@ export default function MenuPage() {
 
   if (!user) return null;
 
-  const close = () => { setPanel(null); setPhase("confirm"); setTyped(""); setPinErr(""); busy.current = false; };
+  const close = () => { setPanel(null); setPhase("confirm"); setTyped(""); setPinErr(""); setBlocked(null); busy.current = false; };
   const openEdit = () => { setForm({ name: user.name, email: user.email, phone: user.phone }); setErrs({}); setPanel("edit"); };
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +66,7 @@ export default function MenuPage() {
     try { await withdraw(pin); }
     catch (x) {
       busy.current = false;
+      if (x instanceof ApiError && x.is("USER_HAS_OPEN_ACCOUNTS")) { setBlocked(x.reasons); setPhase("confirm"); return; }
       setPinErr(errorMessage(x));
       timers.current.push(setTimeout(() => setPinErr(""), 1500));
     }
@@ -132,7 +134,16 @@ export default function MenuPage() {
         {phase === "confirm" ? (
           <div className="ian-stack" style={{ gap: "var(--ian-s-4)" }}>
             <h2 className="ian-t-title2" style={{ margin: 0 }}>정말 탈퇴할까요?</h2>
-            <div className="ian-notice ian-notice--danger"><div><b className="ian-notice__title">탈퇴하면 되돌릴 수 없어요</b>계좌, 카드, 이체 내역을 더 이상 볼 수 없어요. 잔액이 있거나 이용 중인 자동이체·카드는 먼저 정리해 주세요. 탈퇴할 수 있는 조건은 정해지는 대로 안내해 드려요.</div></div>
+            <div className="ian-notice ian-notice--danger"><div><b className="ian-notice__title">탈퇴하면 되돌릴 수 없어요</b>계좌, 카드, 이체 내역을 더 이상 볼 수 없어요. 보유 계좌를 모두 해지해야 탈퇴할 수 있고, 잔액이 있거나 이용 중인 자동이체·카드는 먼저 정리해 주세요.</div></div>
+            {blocked && (
+              <div className="ian-stack" role="alert">
+                <div className="ian-notice ian-notice--danger"><div><b className="ian-notice__title">지금은 탈퇴할 수 없어요</b>{errorMessage(new ApiError(409, "USER_HAS_OPEN_ACCOUNTS", ""))}</div></div>
+                <div className="ian-stack" role="list" aria-label="탈퇴 제한 사유">
+                  {blocked.map((r) => <div key={r} role="listitem" className="ian-notice ian-notice--danger"><div>{r}</div></div>)}
+                </div>
+                <Link href="/home" className="ian-btn ian-btn--outline ian-btn--block">계좌 목록으로 가기</Link>
+              </div>
+            )}
             <TextField id="wd-confirm" label={`계속하려면 “${CONFIRM_TEXT}”를 입력해 주세요`} value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
             <div className="ian-row"><button type="button" className="ian-btn ian-btn--outline" style={{ flex: 1 }} onClick={close}>취소</button><button type="button" className="ian-btn ian-btn--danger" style={{ flex: 2 }} disabled={typed.trim() !== CONFIRM_TEXT} onClick={() => setPhase("pin")}>PIN으로 확인</button></div>
           </div>

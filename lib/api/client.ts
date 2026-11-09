@@ -35,7 +35,7 @@ export async function call<T>(p: Promise<Result<T>>): Promise<T> {
   try { r = await p; } catch { throw new ApiError(0, "NETWORK", ""); }
   if (r.response.ok) return r.data as T;
   const b = (r.error ?? {}) as Partial<ApiErrorBody>;
-  throw new ApiError(r.response.status, b.code ?? "UNKNOWN", b.message ?? "", (b.fieldErrors ?? []).map((f) => ({ field: f.field ?? "", reason: f.reason ?? "" })), b.reasons ?? []);
+  throw new ApiError(r.response.status, b.code ?? "UNKNOWN", b.message ?? "", (b.fieldErrors ?? []).map((f) => ({ field: f.field ?? "", reason: f.reason ?? "" })), b.reasons ?? [], Number(r.response.headers.get("Retry-After")) || undefined);
 }
 
 /** 이체처럼 중복 제출을 막아야 하는 요청용 키. 같은 시도를 재전송할 때는 같은 키를 다시 써야 한다. */
