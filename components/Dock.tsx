@@ -6,6 +6,7 @@ const ITEMS = [
   { href: "/home", label: "홈", icon: "⌂" },
   { href: "/transfer", label: "이체", icon: "⇄" },
   { href: "/cards", label: "카드", icon: "▭" },
+  { href: "/assistant", label: "도우미", icon: "✦" },
   { href: "/menu", label: "전체", icon: "≡" },
 ];
 

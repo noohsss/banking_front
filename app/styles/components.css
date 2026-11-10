@@ -39,7 +39,7 @@
 .ian-iconbtn:active { background: var(--ian-fill); }
 .ian-iconbtn[data-dot]::after { content: ""; position: absolute; top: 11px; right: 11px; width: 9px; height: 9px; border-radius: 50%; background: var(--ian-bright); border: 2px solid var(--ian-bg); }
 
-.ian-dock { position: sticky; bottom: 16px; z-index: var(--ian-z-bar); margin: 0 var(--ian-gutter); display: grid; grid-template-columns: repeat(4, 1fr); padding: 6px; background: var(--ian-inverse); border-radius: var(--ian-r-pill); box-shadow: var(--ian-shadow-dock); }
+.ian-dock { position: sticky; bottom: 16px; z-index: var(--ian-z-bar); margin: 0 var(--ian-gutter); display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 6px; background: var(--ian-inverse); border-radius: var(--ian-r-pill); box-shadow: var(--ian-shadow-dock); }
 .ian-dock__item { display: grid; justify-items: center; gap: 1px; padding: 7px 0 6px; border-radius: var(--ian-r-pill); color: rgb(255 255 255 / 0.72); font-size: var(--ian-fs-micro); font-weight: var(--ian-fw-semibold); text-decoration: none; background: none; border: 0; cursor: pointer; }
 .ian-dock__item[aria-current="page"] { background: var(--ian-dock-on-bg, var(--ian-brand)); color: var(--ian-dock-on-fg, var(--ian-on-brand)); font-weight: var(--ian-fw-black); }
 
