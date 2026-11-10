@@ -1,11 +1,15 @@
 "use client";
 import { useCallback, useRef, useState } from "react";
 import { IS_LIVE } from "@/lib/api/mode";
-import { CHAT_MAX_CHARS, CHAT_MAX_MESSAGES, sendChat, type ChatAnswer, type ChatMessage } from "@/lib/api/assistant";
+import { CHAT_MAX_CHARS, CHAT_MAX_MESSAGES, sendChat, type ChatAnswer, type ChatMessage, type ChatMode, type TransferDraft } from "@/lib/api/assistant";
 import { errorMessage } from "@/lib/api/errors";
+import { parseTransferDraft, saveTransferDraft } from "@/lib/assistantUtil";
 
 export { CHAT_MAX_CHARS };
-export interface ChatTurn extends ChatMessage { sources?: ChatAnswer["sources"]; grounded?: boolean }
+export interface ChatTurn extends ChatMessage { sources?: ChatAnswer["sources"]; grounded?: boolean; insight?: ChatAnswer["insight"]; draft?: TransferDraft | null }
+export type { ChatMode };
+/** 데모 모드에서는 소비 분석·이체 도우미를 쓸 수 없다(서버 호출 없음). */
+export const modeAvailable = (m: ChatMode) => IS_LIVE || m === "KNOWLEDGE";
 
 // 키워드 매칭만 하는 데모 답변. 실제 답변 정확도와 무관하다.
 const MOCK_REPLIES: [RegExp, string][] = [
@@ -18,23 +22,39 @@ const mockAnswer = (q: string): ChatAnswer => ({ answer: MOCK_REPLIES.find(([re]
 
 /** AI 도우미 대화. 이력은 이 훅의 상태에만 두고 저장하지 않는다. send는 실패해도 던지지 않고 error에 문구를 둔다. */
 export function useAssistant() {
+  const [mode, setModeState] = useState<ChatMode>("KNOWLEDGE");
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
   const turnsRef = useRef<ChatTurn[]>([]);
 
+  const modeRef = useRef<ChatMode>("KNOWLEDGE");
+  // 기능마다 이력을 섞지 않는다. 응답을 기다리는 중에는 바꾸지 않는다.
+  const setMode = useCallback((m: ChatMode) => {
+    if (busy.current || m === modeRef.current) return;
+    modeRef.current = m; setModeState(m);
+    turnsRef.current = []; setTurns([]); setError(null);
+  }, []);
+
+  /** 초안을 sessionStorage에 두고 이체 화면으로 넘길 준비를 한다. 유효하지 않으면 false. 전송은 하지 않는다. */
+  const handOffDraft = useCallback((d: TransferDraft): boolean => {
+    if (!parseTransferDraft(d)) return false;
+    try { saveTransferDraft(d); return true; } catch { return false; }
+  }, []);
+
   const send = useCallback(async (text: string): Promise<boolean> => {
     const content = text.trim().slice(0, CHAT_MAX_CHARS);
-    if (!content || busy.current) return false;
+    const m = modeRef.current;
+    if (!content || busy.current || !modeAvailable(m)) return false;
     busy.current = true; setSending(true); setError(null);
     const next: ChatTurn[] = [...turnsRef.current, { role: "user", content }];
     turnsRef.current = next; setTurns(next);
     try {
       const r = IS_LIVE
-        ? await sendChat(next.slice(-CHAT_MAX_MESSAGES).map(({ role, content }) => ({ role, content: content.slice(0, CHAT_MAX_CHARS) })))
+        ? await sendChat(m, next.slice(-CHAT_MAX_MESSAGES).map(({ role, content }) => ({ role, content: content.slice(0, CHAT_MAX_CHARS) })))
         : mockAnswer(content);
-      turnsRef.current = [...next, { role: "assistant", content: r.answer, sources: r.sources, grounded: r.grounded }];
+      turnsRef.current = [...next, { role: "assistant", content: r.answer, sources: r.sources, grounded: r.grounded, insight: r.insight, draft: r.draft }];
       setTurns(turnsRef.current);
       return true;
     } catch (e) {
@@ -43,5 +63,5 @@ export function useAssistant() {
     } finally { busy.current = false; setSending(false); }
   }, []);
 
-  return { turns, sending, error, send };
+  return { mode, setMode, turns, sending, error, send, handOffDraft };
 }

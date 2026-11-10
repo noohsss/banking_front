@@ -8,7 +8,7 @@ import { Sheet } from "@/components/Sheet";
 import { Stepper } from "@/components/Stepper";
 import { useAccounts } from "@/lib/services/useAccounts";
 import { useRecipients } from "@/lib/services/useRecipients";
-import { useTransfer, type SendInput } from "@/lib/services/useTransfer";
+import { usePendingTransferDraft, useTransfer, type SendInput } from "@/lib/services/useTransfer";
 import { IS_LIVE } from "@/lib/api/mode";
 import { newIdempotencyKey } from "@/lib/api/client";
 import { ApiError, errorMessage } from "@/lib/api/errors";
@@ -63,6 +63,7 @@ function TransferFlow() {
   const [pinError, setPinError] = useState(false);
   const [pinFails, setPinFails] = useState(0);
   const [notice, setNotice] = useState("");
+  const [draftNotice, setDraftNotice] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [toast, setToast] = useState("");
   const [checking, setChecking] = useState(false);
@@ -115,6 +116,23 @@ function TransferFlow() {
   };
   const pickPerson = (n: string) => { setNumber(n); setVerifiedName(null); setLookupError(""); void lookup(n); };
   const addAmount = (n: number) => setAmountText(String(Math.min(999999999999, amount + n)));
+
+  // AI 도우미 초안: 화면에 채우기만 한다. PIN·통장 비밀번호는 직접 입력해야 하고 자동 전송은 없다.
+  const { draft, clear: clearDraft } = usePendingTransferDraft();
+  type Draft = NonNullable<typeof draft>;
+  const applyDraft = (draft: Draft) => {
+    // 도우미가 고른 출금 계좌를 쓸 수 없으면 초안 전체를 버린다(다른 계좌로 진행되는 것을 막는다).
+    if (!usable.some((a) => a.id === draft.fromAccountId)) { setDraftNotice(true); return; }
+    setFromId(draft.fromAccountId);
+    setAmountText(String(draft.amount)); setMemo((draft.memo ?? "").slice(0, 20));
+    setNumber(draft.toAccountNum); setVerifiedName(null); setLookupError("");
+    void lookup(draft.toAccountNum);
+  };
+  useEffect(() => {
+    if (!draft || accLoading) return;
+    clearDraft();
+    applyDraft(draft); // eslint-disable-line react-hooks/set-state-in-effect -- 계좌 목록이 도착한 뒤 한 번만 화면 입력값에 반영한다
+  }, [draft, accLoading]); // eslint-disable-line react-hooks/exhaustive-deps -- 초안은 한 번만 쓰고 비우므로 draft·계좌 로딩에만 반응한다
 
   const flash = (m: string) => { setToast(m); timers.current.push(setTimeout(() => setToast(""), 2200)); };
 
@@ -320,6 +338,7 @@ function TransferFlow() {
       <AppBar title="이체" />
       <div className="ian-screen__body" style={{ paddingBottom: 24 }}>
         <Stepper total={3} current={0} />
+        {draftNotice && <div className="ian-notice" role="status"><div>도우미가 고른 출금 계좌를 쓸 수 없어서 초안을 사용하지 않았어요. 직접 입력해 주세요</div></div>}
         {notice && <div className="ian-notice ian-notice--danger" role="alert"><div>{notice}</div></div>}
 
         <div className="ian-field">

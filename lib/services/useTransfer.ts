@@ -5,6 +5,8 @@ import { IS_LIVE } from "@/lib/api/mode";
 import { ApiError } from "@/lib/api/errors";
 import { createTransfer, getTransfer, lookupAccount } from "@/lib/api/transfers";
 import { getTransferLimits, type TransferLimitsInfo } from "@/lib/api/transferLimits";
+import { takeTransferDraft } from "@/lib/assistantUtil";
+import type { TransferDraft } from "@/lib/api/assistant";
 import type { Transfer } from "@/lib/types";
 import { useAccounts } from "./useAccounts";
 
@@ -66,4 +68,10 @@ export function useTransfer(fromId?: string) {
   };
 
   return { limits, lookup, checkPin: (pin: string) => (IS_LIVE ? true : store.checkPin(pin)), send, check };
+}
+
+/** AI 도우미가 넘긴 이체 초안. 마운트 시 한 번 읽고 즉시 지운다(없으면 null). 화면이 쓰고 나면 clear. */
+export function usePendingTransferDraft() {
+  const [draft, setDraft] = useState<TransferDraft | null>(takeTransferDraft); // 지연 초기화로 마운트 때 한 번만 읽는다(React는 개발 모드 이중 호출 중 첫 결과를 쓴다)
+  return { draft, clear: useCallback(() => setDraft(null), []) };
 }
